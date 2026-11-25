@@ -95,11 +95,14 @@ body.earth .scale-exag { display: block; }
   font-family: var(--serif); font-size: 18px; cursor: pointer;
 }
 .zoom button + button { border-left: 1px solid var(--line); }
-.today {
-  height: 32px; padding: 0 14px; border: 1px solid var(--gold); border-radius: 999px;
+.today, .reset {
+  height: 32px; padding: 0 14px; border-radius: 999px;
   background: rgba(17, 23, 35, 0.78); letter-spacing: 0.14em; text-transform: uppercase;
-  font-size: 12px; cursor: pointer;
+  font-size: 12px; cursor: pointer; white-space: nowrap;
 }
+.today { border: 1px solid var(--gold); }
+.reset { border: 1px solid var(--line); padding: 0 12px; letter-spacing: 0.1em; }
+.reset:hover { border-color: var(--gold); }
 
 .legend {
   position: absolute; left: 18px; bottom: 78px; z-index: 6;
@@ -203,11 +206,16 @@ body.earth .scale-exag { display: block; }
 
 @media (max-width: 720px) {
   :root { --dock: 0px; }
-  .masthead { max-width: 11.2rem; left: 10px; top: 8px; }
+  .masthead { max-width: calc(100% - 16.6rem); left: 10px; top: 8px; }
   .sigil { width: 22px; height: 22px; margin-top: 2px; }
   .kicker { font-size: 8px; letter-spacing: 0.14em; }
   h1 { font-size: 0.95rem; white-space: normal; line-height: 1.12; max-width: 8.6rem; }
-  .controls { top: 10px; right: 8px; gap: 6px; }
+  .controls {
+    top: 8px; right: 8px; gap: 6px;
+    width: min(100% - 16px, 15.5rem);
+    flex-wrap: wrap; justify-content: flex-end;
+  }
+  .today, .reset { height: 30px; padding: 0 9px; font-size: 10px; letter-spacing: 0.08em; }
   .hint { display: none; }
   .list-toggle {
     display: inline-flex; align-items: center; height: 30px; padding: 0 10px;

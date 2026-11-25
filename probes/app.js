@@ -42,14 +42,18 @@ let selected = null;
 let hot = null;
 let mode = "solar";
 let transitioning = false;
-let az = 38 * DEG;
-let el = 30 * DEG;
+const HOME_AZ = 38 * DEG;
+const HOME_EL = 30 * DEG;
+let az = HOME_AZ;
+let el = HOME_EL;
 let radius = 248;
 let target = new THREE.Vector3();
 let earthAz = 0.2;
 let earthEl = 0.34;
 let earthRadius = 26;
 let earthTarget = new THREE.Vector3(-0.4, 0.15, 0);
+let glide = null;
+let resetPending = false;
 const tmp = new THREE.Vector3();
 const tmp2 = new THREE.Vector3();
 
@@ -973,7 +977,12 @@ function drawLeaders(svg) {
   }
 }
 
-function frame() {
+function frame(now) {
+  if (resetPending && !transitioning) {
+    if (mode === "earth") leaveEarth(false);
+    else startHomeGlide();
+  }
+  stepGlide(now);
   applyCamera();
   renderer.render(scene, camera);
   layoutLabels();
@@ -984,6 +993,7 @@ function frame() {
 function bind() {
   $("zoom-in").addEventListener("click", () => zoomBy(0.82));
   $("zoom-out").addEventListener("click", () => zoomBy(1.22));
+  $("reset-view").addEventListener("click", resetView);
   $("today").addEventListener("click", () => { slider.value = "1000"; setWhenFromSlider(); });
   $("card-close").addEventListener("click", closeCard);
   slider.addEventListener("input", setWhenFromSlider);
@@ -993,9 +1003,13 @@ function bind() {
   });
   window.addEventListener("resize", resize);
   window.addEventListener("keydown", (event) => {
+    const typing = event.target && (event.target.closest("input, textarea, select") && event.target.type !== "range");
     if (event.key === "Escape") {
       closeCard();
       document.body.classList.remove("list-open");
+    } else if (!typing && !event.repeat && !event.metaKey && !event.ctrlKey && !event.altKey && (event.key === "r" || event.key === "R")) {
+      event.preventDefault();
+      resetView();
     } else if (event.key === "+" || event.key === "=") zoomBy(0.85);
     else if (event.key === "-" || event.key === "_") zoomBy(1.18);
   });
@@ -1010,7 +1024,12 @@ function bind() {
   canvas.addEventListener("pointerdown", (event) => {
     canvas.setPointerCapture(event.pointerId);
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    drag = { x: event.clientX, y: event.clientY, moved: false, button: event.button, az, el, radius, target: target.clone(), earthAz, earthEl, earthTarget: earthTarget.clone() };
+    drag = {
+      x: event.clientX, y: event.clientY, lx: event.clientX, ly: event.clientY,
+      moved: false, button: event.button, az, el, radius, target: target.clone(),
+      earthAz, earthEl, earthTarget: earthTarget.clone(),
+    };
+    cancelViewMotion();
   });
   canvas.addEventListener("pointermove", (event) => {
     if (!pointers.has(event.pointerId)) return;
@@ -1032,12 +1051,17 @@ function bind() {
     const dy = event.clientY - drag.y;
     if (dx * dx + dy * dy > 16) drag.moved = true;
     const panMode = drag.button === 2 || event.shiftKey;
-    if (panMode) pan(dx, dy);
-    else if (mode === "earth") {
+    if (panMode) {
+      pan(event.clientX - drag.lx, event.clientY - drag.ly);
+      drag.lx = event.clientX;
+      drag.ly = event.clientY;
+    } else if (mode === "earth") {
+      // Earth azimuth is swapped relative to the solar one, so minus still follows the hand.
       earthAz = drag.earthAz - dx * 0.005;
       earthEl = THREE.MathUtils.clamp(drag.earthEl + dy * 0.004, -0.6, 1.1);
     } else {
-      az = drag.az - dx * 0.005;
+      // Drag right increases azimuth: the scene moves with the cursor.
+      az = drag.az + dx * 0.005;
       el = THREE.MathUtils.clamp(drag.el + dy * 0.004, -0.2, 1.25);
     }
   });
@@ -1052,6 +1076,10 @@ function bind() {
   };
   canvas.addEventListener("pointerup", endPointer);
   canvas.addEventListener("pointercancel", endPointer);
+  canvas.addEventListener("dblclick", (event) => {
+    if (mode !== "solar" || pickCraft(event)) return;
+    recenterSun();
+  });
   stage.addEventListener("pointerdown", (event) => {
     if (event.target.closest(".card, .dock, .controls, .toolbar")) return;
     if (event.target === canvas) return;
@@ -1059,6 +1087,7 @@ function bind() {
   });
 }
 function zoomBy(factor) {
+  cancelViewMotion();
   if (mode === "earth") {
     earthRadius = THREE.MathUtils.clamp(earthRadius * factor, 8, 70);
     if (earthRadius > 58) leaveEarth(false);
@@ -1069,15 +1098,87 @@ function zoomBy(factor) {
 }
 function pan(dx, dy) {
   const dist = mode === "earth" ? earthRadius : radius;
-  const scale = dist * 0.0016;
+  const height = Math.max(stage.clientHeight, 1);
+  const worldHeight = 2 * dist * Math.tan((camera.fov * Math.PI) / 360);
+  const scale = (worldHeight / height) * 0.32;
   const right = new THREE.Vector3();
   const up = new THREE.Vector3();
   camera.updateMatrixWorld();
   right.setFromMatrixColumn(camera.matrixWorld, 0);
   up.setFromMatrixColumn(camera.matrixWorld, 1);
   const shift = right.multiplyScalar(-dx * scale).add(up.multiplyScalar(dy * scale));
-  if (mode === "earth") earthTarget.add(shift);
-  else target.add(shift);
+  if (mode === "earth") {
+    earthTarget.add(shift);
+    softenLength(earthTarget, 14);
+  } else {
+    target.add(shift);
+    softenLength(target, toR(120));
+  }
+}
+function softenLength(vec, limit) {
+  const d = vec.length();
+  const knee = limit * 0.82;
+  if (d <= knee || d < 1e-8) return;
+  const span = limit - knee;
+  const extra = span * (1 - Math.exp(-(d - knee) / span));
+  vec.multiplyScalar((knee + extra) / d);
+}
+function cancelViewMotion() {
+  glide = null;
+  resetPending = false;
+}
+function glideTo(next) {
+  const fromAz = az;
+  let dAz = (next.az ?? az) - fromAz;
+  while (dAz > Math.PI) dAz -= Math.PI * 2;
+  while (dAz < -Math.PI) dAz += Math.PI * 2;
+  glide = {
+    t0: performance.now(),
+    dur: next.dur ?? 720,
+    fromAz,
+    dAz,
+    fromEl: el,
+    toEl: next.el ?? el,
+    fromRadius: radius,
+    toRadius: next.radius ?? radius,
+    fromTarget: target.clone(),
+    toTarget: next.target ? next.target.clone() : target.clone(),
+  };
+}
+function stepGlide(now) {
+  if (!glide || mode !== "solar" || transitioning) return;
+  const u = Math.min(1, Math.max(0, (now - glide.t0) / glide.dur));
+  const e = u < 0.5 ? 4 * u * u * u : 1 - ((-2 * u + 2) ** 3) / 2;
+  az = glide.fromAz + glide.dAz * e;
+  el = glide.fromEl + (glide.toEl - glide.fromEl) * e;
+  radius = glide.fromRadius + (glide.toRadius - glide.fromRadius) * e;
+  target.lerpVectors(glide.fromTarget, glide.toTarget, e);
+  if (u >= 1) glide = null;
+}
+function startHomeGlide() {
+  resetPending = false;
+  const keep = { az, el, radius, target: target.clone() };
+  frameSolar();
+  const homeRadius = radius;
+  az = keep.az;
+  el = keep.el;
+  radius = keep.radius;
+  target.copy(keep.target);
+  glideTo({ az: HOME_AZ, el: HOME_EL, radius: homeRadius, target: new THREE.Vector3(), dur: 740 });
+}
+function resetView() {
+  glide = null;
+  if (mode === "earth" || transitioning) {
+    resetPending = true;
+    if (mode === "earth" && !transitioning) leaveEarth(false);
+    return;
+  }
+  startHomeGlide();
+}
+function recenterSun() {
+  if (mode !== "solar" || transitioning) return;
+  resetPending = false;
+  glideTo({ target: new THREE.Vector3(), dur: 520 });
 }
 function pickCraft(event) {
   const rect = canvas.getBoundingClientRect();
