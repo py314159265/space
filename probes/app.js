@@ -51,9 +51,16 @@ let target = new THREE.Vector3();
 let earthAz = 0.2;
 let earthEl = 0.34;
 let earthRadius = 26;
-let earthTarget = new THREE.Vector3(-0.4, 0.15, 0);
+let earthTarget = new THREE.Vector3();
 let glide = null;
 let resetPending = false;
+let rotating = false;
+let spinX = 0;
+let spinY = 0;
+let pivotId = "Sun";
+let pivotBlend = null;
+let sunSticky = true;
+let farSticky = true;
 const tmp = new THREE.Vector3();
 const tmp2 = new THREE.Vector3();
 
@@ -218,30 +225,122 @@ function trailVectors(meta, ms) {
   return smoothTrail(slice.map((p) => project(p.x, p.y, p.z)));
 }
 
-function makeProbeSprite(dim) {
-  const g = new THREE.Group();
+const silhouetteTextures = {};
+function craftKind(meta) {
+  if (["jwst", "gaia", "euclid", "roman"].includes(meta.id)) {
+    return meta.planned || meta.group === "planned" ? "telescope-hollow" : "telescope";
+  }
+  if (["perseverance", "curiosity", "spirit", "opportunity"].includes(meta.id)) return "rover";
+  if (["viking", "huygens", "venera", "messenger", "near", "rosetta", "apollo"].includes(meta.id)) return "lander";
+  return "probe";
+}
+function traceCraft(g, kind) {
+  g.beginPath();
+  if (kind === "probe") {
+    g.ellipse(-48, 2, 24, 52, 0, 0, Math.PI * 2);
+    g.rect(-26, -3, 34, 7);
+    g.roundRect(8, -22, 50, 48, 8);
+    g.rect(26, -50, 8, 30);
+  } else if (kind === "rover") {
+    g.roundRect(-46, -18, 92, 28, 6);
+    g.rect(-4, -48, 8, 32);
+    g.roundRect(-20, -56, 40, 12, 3);
+    for (const x of [-30, 0, 30]) {
+      g.moveTo(x + 12, 24);
+      g.arc(x, 24, 12, 0, Math.PI * 2);
+    }
+  } else if (kind === "lander") {
+    g.ellipse(0, -46, 22, 9, 0, 0, Math.PI * 2);
+    g.rect(-2, -38, 4, 12);
+    g.roundRect(-22, -28, 44, 24, 4);
+    g.moveTo(-20, -6); g.lineTo(-50, 42); g.lineTo(-30, 42); g.lineTo(-8, -2);
+    g.moveTo(20, -6); g.lineTo(50, 42); g.lineTo(30, 42); g.lineTo(8, -2);
+    g.moveTo(-6, -4); g.lineTo(0, 40); g.lineTo(6, -4);
+  } else {
+    g.moveTo(-78, 18);
+    g.lineTo(-48, 36);
+    g.lineTo(48, 36);
+    g.lineTo(78, 18);
+    g.lineTo(48, 4);
+    g.lineTo(-48, 4);
+    g.closePath();
+    g.moveTo(0, -62);
+    g.lineTo(30, -44);
+    g.lineTo(30, -14);
+    g.lineTo(0, 2);
+    g.lineTo(-30, -14);
+    g.lineTo(-30, -44);
+    g.closePath();
+  }
+}
+function silhouetteTexture(kind) {
+  const key = kind.replace("-hollow", "");
+  const hollow = kind.endsWith("hollow");
+  const cacheKey = hollow ? key + "-hollow" : key;
+  if (silhouetteTextures[cacheKey]) return silhouetteTextures[cacheKey];
+  const c = document.createElement("canvas");
+  c.width = c.height = 256;
+  const g = c.getContext("2d");
+  g.translate(128, 128);
+  g.lineJoin = "round";
+  g.lineCap = "round";
+  g.shadowColor = "rgba(255,246,230,0.9)";
+  g.shadowBlur = 10;
+  g.fillStyle = "rgba(255,246,230,0.28)";
+  g.strokeStyle = "rgba(255,246,230,0.45)";
+  g.lineWidth = hollow ? 16 : 12;
+  traceCraft(g, key);
+  if (hollow) g.stroke();
+  else g.fill();
+  g.shadowBlur = 0;
+  g.fillStyle = "#ffffff";
+  g.strokeStyle = "#ffffff";
+  g.lineWidth = hollow ? 12 : 8;
+  traceCraft(g, key);
+  if (hollow) g.stroke();
+  else g.fill();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  silhouetteTextures[cacheKey] = tex;
+  return tex;
+}
+function craftTint(meta, ended, hot) {
+  if (hot) return 0xffe6b0;
+  if (meta.color && !ended && !meta.inactive) return meta.color;
+  if (ended) return 0xc4a48a;
+  if (meta.inactive) return 0xb3ab9c;
+  if (meta.planned) return 0xe7d3a4;
+  return 0xf6f1e6;
+}
+function makeCraftSprite(meta, baseScale) {
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: glowTexture(),
+    map: silhouetteTexture(craftKind(meta)),
+    color: craftTint(meta, meta.group === "ended", false),
     transparent: true,
     depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    opacity: dim ? 0.45 : 0.95,
+    opacity: meta.inactive || meta.group === "ended" ? 0.84 : 1,
   }));
-  sprite.scale.setScalar(dim ? 2.2 : 3.4);
-  const core = new THREE.Mesh(
-    new THREE.SphereGeometry(0.22, 10, 8),
-    new THREE.MeshBasicMaterial({ color: dim ? 0xb3ab9c : 0xf7f1e4 }),
-  );
-  g.add(sprite, core);
-  return g;
+  sprite.center.set(0.5, 0.5);
+  sprite.renderOrder = 3;
+  sprite.userData.marker = true;
+  sprite.userData.baseScale = baseScale;
+  sprite.userData.craftId = meta.id;
+  sprite.scale.setScalar(baseScale);
+  return sprite;
 }
-function makeDiamond() {
-  const mesh = new THREE.Mesh(
-    new THREE.OctahedronGeometry(0.34, 0),
-    new THREE.MeshPhongMaterial({ color: 0xb3947a, emissive: 0x5a4336, emissiveIntensity: 0.45, shininess: 8 }),
-  );
-  mesh.rotation.z = Math.PI / 4;
-  return mesh;
+function fitCraftSprites() {
+  if (!camera) return;
+  const height = Math.max(stage.clientHeight, 1);
+  const visit = (obj) => {
+    if (!obj.isSprite || !obj.userData.marker) return;
+    const floor = obj.userData.minPx === 0 ? 0 : (phoneQuery.matches ? 30 : 26);
+    const dist = Math.max(camera.position.distanceTo(obj.getWorldPosition(tmp2)), 0.5);
+    const worldPerPx = 2 * dist * Math.tan((camera.fov * DEG) / 2) / height;
+    obj.scale.setScalar(Math.max(obj.userData.baseScale, floor * worldPerPx));
+  };
+  if (solar) solar.traverse(visit);
+  if (localGroup) localGroup.traverse(visit);
 }
 function paintPlanet(kind) {
   const c = document.createElement("canvas");
@@ -415,10 +514,7 @@ function buildScene() {
   for (const meta of CRAFT) {
     const g = new THREE.Group();
     g.userData.craftId = meta.id;
-    g.add(makeProbeSprite(meta.inactive));
-    g.add(makeDiamond());
-    g.children[0].visible = meta.group !== "ended";
-    g.children[1].visible = meta.group === "ended";
+    g.add(makeCraftSprite(meta, phone ? 3.6 : 3.15));
     g.traverse((obj) => { obj.userData.craftId = meta.id; });
     solar.add(g);
     craftGroups[meta.id] = g;
@@ -480,9 +576,9 @@ function buildEarthScene() {
   addLabel("Moon", "planet", false, () => moon.getWorldPosition(tmp2), "earth");
   const sites = [[-0.15, 0.2, 0.66], [-0.3, -0.1, 0.6], [-0.05, 0.4, 0.58], [-0.22, -0.28, 0.6]];
   sites.forEach((v, i) => {
-    const m = makeDiamond();
-    m.scale.setScalar(0.22);
-    m.position.copy(new THREE.Vector3(...v).normalize().multiplyScalar(0.74)).add(moon.position);
+    const m = makeCraftSprite(byId.apollo, 0.34);
+    m.userData.minPx = 0;
+    m.position.copy(new THREE.Vector3(...v).normalize().multiplyScalar(0.78)).add(moon.position);
     localGroup.add(m);
     if (i === 0) addLabel("Apollo 11", "minor", true, () => m.getWorldPosition(tmp2), "earth");
   });
@@ -512,14 +608,7 @@ function buildEarthScene() {
     const g = new THREE.Group();
     g.userData.craftId = id;
     g.position.copy(p);
-    if (hollow) {
-      g.add(new THREE.Mesh(
-        new THREE.RingGeometry(0.22, 0.36, 24),
-        new THREE.MeshBasicMaterial({ color: 0xc9a86a, side: THREE.DoubleSide, depthWrite: false }),
-      ));
-    } else {
-      g.add(makeProbeSprite(false));
-    }
+    g.add(makeCraftSprite(meta, 1.28));
     g.traverse((obj) => { obj.userData.craftId = id; });
     localGroup.add(g);
     const textAt = l2.clone().add(new THREE.Vector3(...labelAt));
@@ -561,8 +650,7 @@ function placeCraft(meta) {
   g.visible = phase !== "hidden" && phase !== "planned";
   if (!g.visible) return;
   const ended = phase === "ended";
-  g.children[0].visible = !ended;
-  g.children[1].visible = ended;
+  const sprite = g.children.find((child) => child.isSprite);
   let pos = null;
   if (!ended && tracks[meta.id] && phase === "flight") {
     const st = sample(meta.id, Math.min(when, tracks[meta.id].ms[tracks[meta.id].ms.length - 1]));
@@ -587,7 +675,11 @@ function placeCraft(meta) {
   }
   if (pos) g.position.copy(pos);
   const hotOne = hot === meta.id || selected === meta.id;
-  g.scale.setScalar(hotOne ? 1.45 : 1);
+  g.scale.setScalar(hotOne ? 1.5 : 1);
+  if (sprite) {
+    sprite.material.color.setHex(craftTint(meta, ended, hotOne));
+    sprite.material.opacity = hotOne ? 1 : ended || meta.inactive ? 0.84 : 1;
+  }
 }
 
 function updateWorld() {
@@ -707,10 +799,9 @@ function closeCard() {
 }
 
 function dockIcon(group) {
-  if (group === "ended") return `<svg class="row-icon" viewBox="0 0 16 12" aria-hidden="true"><rect x="5" y="3" width="6" height="6" fill="#8a7360" transform="rotate(45 8 6)"/></svg>`;
-  if (group === "planned") return `<svg class="row-icon" viewBox="0 0 16 12" aria-hidden="true"><circle cx="8" cy="6" r="3" fill="none" stroke="#c9a86a" stroke-width="1.2"/></svg>`;
-  const fill = group === "inactive" ? "#8f8a80" : "#ece4d4";
-  return `<svg class="row-icon" viewBox="0 0 16 12" aria-hidden="true"><circle cx="8" cy="6" r="2.5" fill="${fill}"/></svg>`;
+  if (group === "planned") return `<svg class="row-icon" viewBox="0 0 16 12" aria-hidden="true"><ellipse cx="4" cy="6" rx="1.8" ry="3.2" fill="none" stroke="#c9a86a" stroke-width="1.1"/><rect x="7" y="4.2" width="6" height="3.6" rx="0.6" fill="none" stroke="#c9a86a" stroke-width="1.1"/></svg>`;
+  const fill = group === "ended" ? "#c4a48a" : group === "inactive" ? "#8f8a80" : "#ece4d4";
+  return `<svg class="row-icon" viewBox="0 0 16 12" aria-hidden="true"><ellipse cx="4" cy="6" rx="1.8" ry="3.2" fill="${fill}"/><rect x="7" y="4.2" width="6" height="3.6" rx="0.6" fill="${fill}"/></svg>`;
 }
 function buildDock() {
   for (const group of GROUPS) {
@@ -801,6 +892,9 @@ function enterEarth(instant) {
     solar.visible = false;
     localGroup.visible = true;
     mode = "earth";
+    pivotBlend = null;
+    pivotId = "Earth";
+    earthTarget.set(0, 0, 0);
     document.body.classList.add("earth");
     trailGroup.visible = false;
     applyCamera();
@@ -818,6 +912,8 @@ function leaveEarth(instant) {
     localGroup.visible = false;
     solar.visible = true;
     mode = "solar";
+    pivotBlend = null;
+    pivotId = "Sun";
     document.body.classList.remove("earth");
     trailGroup.visible = true;
     radius = Math.max(radius, 55);
@@ -983,7 +1079,11 @@ function frame(now) {
     else startHomeGlide();
   }
   stepGlide(now);
+  applySpin();
+  if (!rotating && !glide && !transitioning) aimPivot(false);
+  stepPivot(now);
   applyCamera();
+  fitCraftSprites();
   renderer.render(scene, camera);
   layoutLabels();
   drawConnector();
@@ -1030,6 +1130,7 @@ function bind() {
       earthAz, earthEl, earthTarget: earthTarget.clone(),
     };
     cancelViewMotion();
+    rotating = event.button === 0 && !event.shiftKey;
   });
   canvas.addEventListener("pointermove", (event) => {
     if (!pointers.has(event.pointerId)) return;
@@ -1052,17 +1153,20 @@ function bind() {
     if (dx * dx + dy * dy > 16) drag.moved = true;
     const panMode = drag.button === 2 || event.shiftKey;
     if (panMode) {
+      rotating = false;
+      pivotBlend = null;
       pan(event.clientX - drag.lx, event.clientY - drag.ly);
       drag.lx = event.clientX;
       drag.ly = event.clientY;
-    } else if (mode === "earth") {
-      // Earth azimuth is swapped relative to the solar one, so minus still follows the hand.
-      earthAz = drag.earthAz - dx * 0.005;
-      earthEl = THREE.MathUtils.clamp(drag.earthEl + dy * 0.004, -0.6, 1.1);
     } else {
-      // Drag right increases azimuth: the scene moves with the cursor.
-      az = drag.az + dx * 0.005;
-      el = THREE.MathUtils.clamp(drag.el + dy * 0.004, -0.2, 1.25);
+      spinX += event.clientX - drag.lx;
+      spinY += event.clientY - drag.ly;
+      drag.lx = event.clientX;
+      drag.ly = event.clientY;
+      if (drag.moved && !drag.aimed) {
+        drag.aimed = true;
+        aimPivot(true);
+      }
     }
   });
   const endPointer = (event) => {
@@ -1072,7 +1176,10 @@ function bind() {
       if (picked) openCard(picked);
       else closeCard();
     }
-    if (pointers.size === 0) drag = null;
+    if (pointers.size === 0) {
+      drag = null;
+      rotating = false;
+    }
   };
   canvas.addEventListener("pointerup", endPointer);
   canvas.addEventListener("pointercancel", endPointer);
@@ -1127,6 +1234,126 @@ function cancelViewMotion() {
   glide = null;
   resetPending = false;
 }
+function applySpin() {
+  if (!spinX && !spinY) return;
+  const dx = spinX;
+  const dy = spinY;
+  spinX = 0;
+  spinY = 0;
+  if (mode === "earth") {
+    // Earth azimuth is swapped relative to the solar one, so minus still follows the hand.
+    earthAz -= dx * 0.005;
+    earthEl = THREE.MathUtils.clamp(earthEl + dy * 0.004, -0.6, 1.1);
+  } else {
+    // Drag right increases azimuth: the scene moves with the cursor.
+    az += dx * 0.005;
+    el = THREE.MathUtils.clamp(el + dy * 0.004, -0.2, 1.25);
+  }
+}
+function orbitPosition() {
+  if (mode === "earth") {
+    return new THREE.Vector3(
+      earthTarget.x + earthRadius * Math.cos(earthEl) * Math.sin(earthAz),
+      earthTarget.y + earthRadius * Math.sin(earthEl),
+      earthTarget.z + earthRadius * Math.cos(earthEl) * Math.cos(earthAz),
+    );
+  }
+  return new THREE.Vector3(
+    target.x + radius * Math.cos(el) * Math.cos(az),
+    target.y + radius * Math.sin(el),
+    target.z + radius * Math.cos(el) * Math.sin(az),
+  );
+}
+function rebaseOrbit(camPos) {
+  if (mode === "earth") {
+    const off = camPos.clone().sub(earthTarget);
+    earthRadius = Math.max(off.length(), 0.01);
+    earthEl = Math.asin(THREE.MathUtils.clamp(off.y / earthRadius, -1, 1));
+    earthAz = Math.atan2(off.x, off.z);
+  } else {
+    const off = camPos.clone().sub(target);
+    radius = Math.max(off.length(), 0.01);
+    el = Math.asin(THREE.MathUtils.clamp(off.y / radius, -1, 1));
+    az = Math.atan2(off.z, off.x);
+  }
+}
+function sunInView() {
+  const s = projectToScreen(new THREE.Vector3());
+  const w = stage.clientWidth;
+  const h = stage.clientHeight;
+  const inside = s.z >= -1 && s.z <= 1 && s.x >= 28 && s.x <= w - 28 && s.y >= 28 && s.y <= h - 28;
+  const outside = s.z < -1 || s.z > 1 || s.x < -20 || s.x > w + 20 || s.y < -20 || s.y > h + 20;
+  if (inside) sunSticky = true;
+  else if (outside) sunSticky = false;
+  return sunSticky;
+}
+function focusedPlanetName() {
+  const id = selected || hot;
+  if (!id || !byId[id]) return null;
+  const meta = byId[id];
+  if (meta.earth) return "Earth";
+  if (meta.cluster === "mars" || meta.body === "Mars") return "Mars";
+  if (meta.body && planetGroups[meta.body]) return meta.body;
+  if (meta.id === "juno") return "Jupiter";
+  return null;
+}
+function nearestPlanet() {
+  let best = null;
+  let bestD = Infinity;
+  for (const planet of PLANETS) {
+    const pos = planetGroups[planet.name] && planetGroups[planet.name].position;
+    if (!pos) continue;
+    const d = camera.position.distanceTo(pos);
+    if (d < bestD) {
+      bestD = d;
+      best = { id: planet.name, pos: pos.clone(), dist: d };
+    }
+  }
+  return best;
+}
+function pivotPoint(id) {
+  if (mode === "earth") return new THREE.Vector3();
+  if (!id || id === "Sun" || !planetGroups[id]) return new THREE.Vector3();
+  return planetGroups[id].position.clone();
+}
+function pivotBody() {
+  if (mode === "earth") return { id: "Earth", pos: new THREE.Vector3() };
+  const sunDist = camera.position.length();
+  if (sunDist > 54) farSticky = true;
+  else if (sunDist < 36) farSticky = false;
+  const focus = focusedPlanetName();
+  const focusClose = focus && planetGroups[focus] && camera.position.distanceTo(planetGroups[focus].position) < 34;
+  if (sunInView() && farSticky && !focusClose) return { id: "Sun", pos: new THREE.Vector3() };
+  if (focus && planetGroups[focus]) return { id: focus, pos: planetGroups[focus].position.clone() };
+  const near = nearestPlanet();
+  if (near && (near.dist < 70 || target.distanceTo(near.pos) < 28)) return near;
+  const current = pivotPoint(pivotId);
+  return { id: pivotId === "Earth" ? "Sun" : pivotId, pos: current };
+}
+function aimPivot(force) {
+  if (!camera || transitioning || glide) return;
+  const want = pivotBody();
+  const look = mode === "earth" ? earthTarget : target;
+  const drifted = look.distanceTo(want.pos) > (mode === "earth" ? 0.35 : 2);
+  if (want.id === pivotId && !(force && drifted)) return;
+  pivotId = want.id;
+  pivotBlend = { t0: performance.now(), from: look.clone(), id: want.id, earthMode: mode === "earth" };
+}
+function stepPivot(now) {
+  if (!pivotBlend || glide || transitioning) return;
+  if (pivotBlend.earthMode !== (mode === "earth")) {
+    pivotBlend = null;
+    return;
+  }
+  const held = orbitPosition();
+  const u = Math.min(1, Math.max(0, (now - pivotBlend.t0) / 300));
+  const e = u * u * (3 - 2 * u);
+  const next = pivotBlend.from.clone().lerp(pivotPoint(pivotBlend.id), e);
+  if (mode === "earth") earthTarget.copy(next);
+  else target.copy(next);
+  rebaseOrbit(held);
+  if (u >= 1) pivotBlend = null;
+}
 function glideTo(next) {
   const fromAz = az;
   let dAz = (next.az ?? az) - fromAz;
@@ -1164,6 +1391,10 @@ function startHomeGlide() {
   el = keep.el;
   radius = keep.radius;
   target.copy(keep.target);
+  pivotBlend = null;
+  pivotId = "Sun";
+  farSticky = true;
+  sunSticky = true;
   glideTo({ az: HOME_AZ, el: HOME_EL, radius: homeRadius, target: new THREE.Vector3(), dur: 740 });
 }
 function resetView() {
@@ -1178,6 +1409,8 @@ function resetView() {
 function recenterSun() {
   if (mode !== "solar" || transitioning) return;
   resetPending = false;
+  pivotBlend = null;
+  pivotId = "Sun";
   glideTo({ target: new THREE.Vector3(), dur: 520 });
 }
 function pickCraft(event) {
@@ -1188,7 +1421,7 @@ function pickCraft(event) {
   );
   const ray = new THREE.Raycaster();
   ray.setFromCamera(ndc, camera);
-  ray.params.Sprite = { threshold: 1.2 };
+  ray.params.Sprite = { threshold: phoneQuery.matches ? 3.2 : 2.1 };
   const root = mode === "earth" ? localGroup : solar;
   const hits = ray.intersectObjects(root.children, true);
   for (const hit of hits) {
