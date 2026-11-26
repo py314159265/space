@@ -282,17 +282,9 @@ function silhouetteTexture(kind) {
   c.width = c.height = 256;
   const g = c.getContext("2d");
   g.translate(128, 128);
+  g.scale(1.42, 1.42);
   g.lineJoin = "round";
   g.lineCap = "round";
-  g.shadowColor = "rgba(255,246,230,0.9)";
-  g.shadowBlur = 10;
-  g.fillStyle = "rgba(255,246,230,0.28)";
-  g.strokeStyle = "rgba(255,246,230,0.45)";
-  g.lineWidth = hollow ? 16 : 12;
-  traceCraft(g, key);
-  if (hollow) g.stroke();
-  else g.fill();
-  g.shadowBlur = 0;
   g.fillStyle = "#ffffff";
   g.strokeStyle = "#ffffff";
   g.lineWidth = hollow ? 12 : 8;
@@ -313,31 +305,46 @@ function craftTint(meta, ended, hot) {
   if (meta.planned) return 0xe7d3a4;
   return 0xf6f1e6;
 }
-function makeCraftSprite(meta, baseScale) {
+function makeCraftSprite(meta) {
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
     map: silhouetteTexture(craftKind(meta)),
     color: craftTint(meta, meta.group === "ended", false),
     transparent: true,
     depthWrite: false,
-    opacity: meta.inactive || meta.group === "ended" ? 0.84 : 1,
+    opacity: meta.inactive || meta.group === "ended" ? 0.9 : 1,
   }));
   sprite.center.set(0.5, 0.5);
-  sprite.renderOrder = 3;
+  sprite.renderOrder = 2;
   sprite.userData.marker = true;
-  sprite.userData.baseScale = baseScale;
   sprite.userData.craftId = meta.id;
-  sprite.scale.setScalar(baseScale);
+  const hit = new THREE.Sprite(new THREE.SpriteMaterial({
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    depthTest: false,
+  }));
+  hit.center.set(0.5, 0.5);
+  hit.userData.hit = true;
+  hit.userData.craftId = meta.id;
+  return { sprite, hit };
+}
+function attachCraftMarker(group, meta) {
+  const { sprite, hit } = makeCraftSprite(meta);
+  group.add(sprite, hit);
   return sprite;
 }
 function fitCraftSprites() {
   if (!camera) return;
   const height = Math.max(stage.clientHeight, 1);
+  const iconPx = phoneQuery.matches ? 14 : 13;
+  const hitPx = phoneQuery.matches ? 40 : 22;
   const visit = (obj) => {
-    if (!obj.isSprite || !obj.userData.marker) return;
-    const floor = obj.userData.minPx === 0 ? 0 : (phoneQuery.matches ? 30 : 26);
+    if (!obj.isSprite || (!obj.userData.marker && !obj.userData.hit)) return;
     const dist = Math.max(camera.position.distanceTo(obj.getWorldPosition(tmp2)), 0.5);
     const worldPerPx = 2 * dist * Math.tan((camera.fov * DEG) / 2) / height;
-    obj.scale.setScalar(Math.max(obj.userData.baseScale, floor * worldPerPx));
+    const parent = obj.parent && obj.parent.scale ? obj.parent.scale.x : 1;
+    const px = obj.userData.hit ? hitPx : iconPx;
+    obj.scale.setScalar((px * worldPerPx) / (parent || 1));
   };
   if (solar) solar.traverse(visit);
   if (localGroup) localGroup.traverse(visit);
@@ -514,7 +521,7 @@ function buildScene() {
   for (const meta of CRAFT) {
     const g = new THREE.Group();
     g.userData.craftId = meta.id;
-    g.add(makeCraftSprite(meta, phone ? 3.6 : 3.15));
+    attachCraftMarker(g, meta);
     g.traverse((obj) => { obj.userData.craftId = meta.id; });
     solar.add(g);
     craftGroups[meta.id] = g;
@@ -576,11 +583,12 @@ function buildEarthScene() {
   addLabel("Moon", "planet", false, () => moon.getWorldPosition(tmp2), "earth");
   const sites = [[-0.15, 0.2, 0.66], [-0.3, -0.1, 0.6], [-0.05, 0.4, 0.58], [-0.22, -0.28, 0.6]];
   sites.forEach((v, i) => {
-    const m = makeCraftSprite(byId.apollo, 0.34);
-    m.userData.minPx = 0;
-    m.position.copy(new THREE.Vector3(...v).normalize().multiplyScalar(0.78)).add(moon.position);
-    localGroup.add(m);
-    if (i === 0) addLabel("Apollo 11", "minor", true, () => m.getWorldPosition(tmp2), "earth");
+    const holder = new THREE.Group();
+    holder.userData.craftId = "apollo";
+    attachCraftMarker(holder, byId.apollo);
+    holder.position.copy(new THREE.Vector3(...v).normalize().multiplyScalar(0.78)).add(moon.position);
+    localGroup.add(holder);
+    if (i === 0) addLabel("Apollo 11", "minor", true, () => holder.getWorldPosition(tmp2), "earth");
   });
   addLabel("Apollo landing sites", "minor", true, () => moon.getWorldPosition(tmp2).add(new THREE.Vector3(0, -1.3, 0)), "earth");
 
@@ -608,7 +616,7 @@ function buildEarthScene() {
     const g = new THREE.Group();
     g.userData.craftId = id;
     g.position.copy(p);
-    g.add(makeCraftSprite(meta, 1.28));
+    attachCraftMarker(g, meta);
     g.traverse((obj) => { obj.userData.craftId = id; });
     localGroup.add(g);
     const textAt = l2.clone().add(new THREE.Vector3(...labelAt));
@@ -650,7 +658,7 @@ function placeCraft(meta) {
   g.visible = phase !== "hidden" && phase !== "planned";
   if (!g.visible) return;
   const ended = phase === "ended";
-  const sprite = g.children.find((child) => child.isSprite);
+  const sprite = g.children.find((child) => child.userData.marker);
   let pos = null;
   if (!ended && tracks[meta.id] && phase === "flight") {
     const st = sample(meta.id, Math.min(when, tracks[meta.id].ms[tracks[meta.id].ms.length - 1]));
@@ -675,7 +683,7 @@ function placeCraft(meta) {
   }
   if (pos) g.position.copy(pos);
   const hotOne = hot === meta.id || selected === meta.id;
-  g.scale.setScalar(hotOne ? 1.5 : 1);
+  g.scale.setScalar(1);
   if (sprite) {
     sprite.material.color.setHex(craftTint(meta, ended, hotOne));
     sprite.material.opacity = hotOne ? 1 : ended || meta.inactive ? 0.84 : 1;
@@ -947,7 +955,7 @@ function labelCandidates(scr) {
   const px = -oy;
   const py = ox;
   const out = [];
-  for (const dist of [28, 46, 64, 84]) {
+  for (const dist of [16, 30, 46, 68]) {
     for (const side of [0, 0.85, -0.85, 1.4, -1.4]) {
       out.push([ox * dist + px * side * 16, oy * dist + py * side * 16]);
     }
@@ -967,7 +975,7 @@ function layoutLabels() {
   const edge = Math.min(dockLeft, stage.clientWidth) - 8;
   const tryPlace = (item, scr, dx, dy, force) => {
     const w = Math.max(42, item.el.offsetWidth || item.text.length * 6.4);
-    const rect = { x: scr.x + dx, y: scr.y + dy - 12, w: w + 8, h: 18 };
+    const rect = { x: scr.x + dx, y: scr.y + dy - 12, w: w + 8, h: 20 };
     const inside = rect.x > 6 && rect.y > 48 && rect.y + rect.h < stage.clientHeight - 62 && rect.x + rect.w < edge;
     const hit = boxes.some((b) => rect.x < b.x + b.w && rect.x + rect.w > b.x && rect.y < b.y + b.h && rect.y + rect.h > b.y);
     if ((!inside || hit) && !force) return false;
@@ -992,21 +1000,28 @@ function layoutLabels() {
     if (scr.z < -1 || scr.z > 1) { item.el.hidden = true; continue; }
     queue.push({ item, scr });
   }
-  queue.sort((a, b) => (a.item.id ? 1 : 0) - (b.item.id ? 1 : 0));
+  const rank = (item) => {
+    if (selected && item.id === selected) return 0;
+    if (hot && item.id === hot) return 1;
+    if (!item.id) return 2;
+    return item.minor ? 4 : 3;
+  };
+  queue.sort((a, b) => rank(a.item) - rank(b.item));
   for (const { item, scr } of queue) {
+    const focused = (selected && item.id === selected) || (hot && item.id === hot);
     const prefs = item.leader
-      ? [[0, -2], [8, -12], [-6, 10]]
-      : (item.id ? labelCandidates(scr) : [[10, -14], [12, 12], [-8, -16], [14, 4]]);
+      ? [[16, -14], [-18, -12], [16, 10]]
+      : (item.id ? labelCandidates(scr) : [[12, -14], [14, 12], [-10, -16], [16, 4]]);
     let placed = false;
     for (const [dx, dy] of prefs) {
       if (tryPlace(item, scr, dx, dy, false)) { placed = true; break; }
     }
-    if (!placed && !item.minor) {
+    if (!placed && (!item.id || focused)) {
       let best = prefs[0];
       let bestOverflow = Infinity;
       const w = Math.max(42, item.el.offsetWidth || item.text.length * 6.4);
       for (const [dx, dy] of prefs) {
-        const rect = { x: scr.x + dx, y: scr.y + dy - 12, w: w + 8, h: 18 };
+        const rect = { x: scr.x + dx, y: scr.y + dy - 12, w: w + 8, h: 20 };
         const overflow =
           Math.max(0, 8 - rect.x) +
           Math.max(0, rect.x + rect.w - edge) +
