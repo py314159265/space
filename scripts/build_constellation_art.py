@@ -210,6 +210,38 @@ def fit_residuals(src, dst):
     return ax, ay, res
 
 
+def similarity_from_pairs(src, dst):
+    """Map src onto dst with scale, rotation, and translation. No mirror or shear."""
+    mu_s = src.mean(0)
+    mu_d = dst.mean(0)
+    S = src - mu_s
+    D = dst - mu_d
+    x, y = S[:, 0], S[:, 1]
+    u, v = D[:, 0], D[:, 1]
+    var = float(np.sum(x * x + y * y))
+    if var < 1e-8:
+        return None
+    a = float(np.sum(x * u + y * v) / var)
+    b = float(np.sum(x * v - y * u) / var)
+    t = mu_d - np.array([a * mu_s[0] - b * mu_s[1], b * mu_s[0] + a * mu_s[1]])
+    return a, b, t
+
+
+def apply_sim(a, b, t, pts):
+    x, y = pts[:, 0], pts[:, 1]
+    return np.stack([a * x - b * y + t[0], b * x + a * y + t[1]], 1)
+
+
+def sim_residuals(src, dst):
+    fit = similarity_from_pairs(src, dst)
+    if fit is None:
+        return None
+    a, b, t = fit
+    pred = apply_sim(a, b, t, src)
+    res = np.hypot(pred[:, 0] - dst[:, 0], pred[:, 1] - dst[:, 1])
+    return a, b, t, res
+
+
 def refine_anchors(gray, sky, rows, proj, cid):
     """Snap catalog stars onto engraved disks and keep a consistent affine."""
     h, w = gray.shape
@@ -284,6 +316,25 @@ def refine_anchors(gray, sky, rows, proj, cid):
     return ax, ay, kept
 
 
+def erase_rules(mask):
+    """Drop thin straight rules left over from the card frame and the grid.
+
+    A figure stroke is wide enough to survive an opening, so subtracting the
+    opened body leaves the hairline rules and not the club, tail, or legs.
+    """
+    h, w = mask.shape
+    long_v = max(48, int(0.18 * h))
+    long_h = max(48, int(0.18 * w))
+    vert = cv2.morphologyEx(mask, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (1, long_v)))
+    horiz = cv2.morphologyEx(mask, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (long_h, 1)))
+    thick = cv2.morphologyEx(mask, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11)))
+    thick = cv2.dilate(thick, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))
+    rules = cv2.subtract(cv2.bitwise_or(vert, horiz), thick)
+    rules = cv2.dilate(rules, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)))
+    mask[rules > 0] = 0
+    return mask
+
+
 def erase_grid(gray, ink):
     """Blank long axis-aligned rules: the card frame and the coordinate grid."""
     edges = cv2.Canny(gray, 40, 130)
@@ -344,6 +395,8 @@ def clean_figure(rgb, star_xy, anchors):
     # The washes on these plates are light, so a dark-only threshold drops the body.
     ink = (gray < 168).astype(np.uint8) * 255
     ink = erase_grid(gray, ink)
+    # Rules are still hairlines here. The close below thickens them into the body.
+    ink = erase_rules(ink)
     n, lab, stats, _ = cv2.connectedComponentsWithStats(ink, 8)
     kept = np.zeros_like(ink)
     for i in range(1, n):
@@ -379,8 +432,19 @@ def clean_figure(rgb, star_xy, anchors):
             mask[lab == i] = 255
     if int((mask > 0).sum()) < 800:
         return None
-    # The card frame sits on the plate edge. Drop a thin strip there.
-    edge = max(8, int(0.012 * min(h, w)))
+    n, lab, stats, _ = cv2.connectedComponentsWithStats(mask, 8)
+    for i in range(1, n):
+        x0 = int(stats[i, cv2.CC_STAT_LEFT])
+        y0 = int(stats[i, cv2.CC_STAT_TOP])
+        bw = int(stats[i, cv2.CC_STAT_WIDTH])
+        bh = int(stats[i, cv2.CC_STAT_HEIGHT])
+        area = int(stats[i, cv2.CC_STAT_AREA])
+        touches = x0 < 6 or y0 < 6 or x0 + bw > w - 6 or y0 + bh > h - 6
+        if touches and area < 4000:
+            mask[lab == i] = 0
+    # The card frame sits on the plate edge. Drop a strip there so a rule the
+    # close bridged back into the silhouette cannot feather in from the border.
+    edge = max(18, int(0.028 * min(h, w)))
     mask[:edge, :] = 0
     mask[-edge:, :] = 0
     mask[:, :edge] = 0
@@ -453,6 +517,30 @@ VERIFIED = {
     "Sco": {
         80763: (983, 1406), 81266: (903, 1480), 82396: (778, 1905),
         85927: (281, 2070), 86670: (204, 2239),
+    },
+    # Disk centers read off the engraved, labeled stars.
+    "Gem": {
+        36850: (590, 330), 37826: (446, 502), 32246: (1066, 660),
+        34693: (795, 422), 36962: (556, 538), 37740: (448, 690),
+    },
+    "CMa": {
+        32349: (644, 309), 30324: (904, 385), 34444: (384, 775),
+        33579: (492, 893), 35904: (219, 906),
+    },
+    "Leo": {
+        49669: (1175, 1725), 50583: (1075, 1425), 57632: (225, 1628),
+        47908: (1392, 1270), 54879: (556, 1594), 50335: (1101, 1284),
+        49583: (1189, 1542), 48455: (1327, 1184),
+    },
+    "And": {
+        677: (1268, 828), 5447: (975, 1475), 9640: (675, 2000),
+    },
+    "Aql": {
+        97649: (975, 1200), 97278: (1025, 1125), 98036: (925, 1325),
+    },
+    "Per": {
+        15863: (875, 475), 14576: (875, 775), 14328: (1000, 455),
+        17358: (780, 500),
     },
 }
 
@@ -573,30 +661,36 @@ def place_anchors(cid, gray):
             if hip not in hip_i:
                 continue
             items.append((hip_i[hip], float(x), float(y)))
-        while len(items) >= 4:
+        while len(items) >= 3:
             src = sky[[it[0] for it in items]]
             dst = np.array([[it[1], it[2]] for it in items], float)
-            ax, ay, res = fit_residuals(src, dst)
+            fitted = sim_residuals(src, dst)
+            if fitted is None:
+                return None
+            _a, _b, _t, res = fitted
             span = max(float(np.ptp(dst[:, 0])), float(np.ptp(dst[:, 1])), 1.0)
             worst = int(np.argmax(res))
-            # Drop a point the engraver displaced, while at least four remain so the
-            # residual is a real check. The shipped gate is 2% of the figure.
-            if res[worst] <= 0.05 * span or len(items) == 4:
+            # A similarity has four parameters, so three stars already leave a
+            # residual. Drop a point the engraver displaced while more remain.
+            if res[worst] <= 0.05 * span or len(items) == 3:
                 kept = []
                 for it, r in zip(items, res):
-                    if len(items) > 4 and r > 0.05 * span:
+                    if len(items) > 3 and r > 0.05 * span:
                         continue
                     kept.append({
                         "i": it[0], "hip": int(rows[it[0]][4]), "mag": float(rows[it[0]][2]),
                         "x": it[1], "y": it[2], "res": float(r), "stick": True,
                     })
-                if len(kept) >= 4:
+                if len(kept) >= 3:
                     src = sky[[p["i"] for p in kept]]
                     dst = np.array([[p["x"], p["y"]] for p in kept], float)
-                    ax, ay, res = fit_residuals(src, dst)
+                    fitted = sim_residuals(src, dst)
+                    if fitted is None:
+                        return None
+                    a, b, t, res = fitted
                     for p, r in zip(kept, res):
                         p["res"] = float(r)
-                    return ax, ay, kept, sky, rows
+                    return a, b, t, kept, sky, rows
                 break
             items.pop(worst)
         return None
@@ -622,7 +716,7 @@ def main():
         if not placed:
             print("FAIL place", cid)
             continue
-        ax, ay, kept, sky, rows = placed
+        a, b, t, kept, sky, rows = placed
         span = max(float(np.ptp([p["x"] for p in kept])), float(np.ptp([p["y"] for p in kept])), 1.0)
         # Crop around the checked stars, with room for the body drawn past them.
         # Projecting every faint catalog star pulls in the rest of a shared card.
@@ -632,8 +726,10 @@ def main():
         miny, maxy = min(ys), max(ys)
         # Pad by the longer star span. A flat asterism still has a tall body around it.
         reach = max(maxx - minx, maxy - miny, 1.0)
-        pad_x = max(160, reach * 0.95)
-        pad_y = max(160, reach * 0.95)
+        # A compact asterism can sit inside a much larger body, so the pad is
+        # not just a fraction of the star span.
+        pad_x = max(420, reach * 1.15)
+        pad_y = max(420, reach * 1.15)
         W, H = color.size
         left = int(max(0, minx - pad_x))
         top = int(max(0, miny - pad_y))
@@ -644,7 +740,7 @@ def main():
             continue
         crop_rgb = np.asarray(color.crop((left, top, right, bottom)))
         star_xy = [(p["x"] - left, p["y"] - top) for p in kept]
-        sky_all = apply_aff(ax, ay, sky)
+        sky_all = apply_sim(a, b, t, sky)
         # Also punch other catalog stars that landed in the crop so their glyphs go too.
         for p in sky_all:
             lx, ly = p[0] - left, p[1] - top
@@ -722,7 +818,7 @@ def main():
     (OUT / "index.json").write_text(json.dumps(index))
     (OUT / "residuals.json").write_text(json.dumps({
         "limitPct": LIMIT_PCT,
-        "note": "Each residual is the distance, in the shipped figure, between an anchor star and the affine reprojection of its catalog position. The limit is 2% of the figure's long side.",
+        "note": "Each residual is the distance, in the shipped figure, between an anchor star and where a similarity (scale, rotation, translation; no shear and no mirror) puts its catalog position. The sky view places the figure with that same similarity. The limit is 2% of the figure's long side.",
         "figures": report,
     }, indent=2))
     (OUT / "credits.json").write_text(json.dumps({

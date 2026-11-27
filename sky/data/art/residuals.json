@@ -1,54 +1,54 @@
 {
   "limitPct": 2.0,
-  "note": "Each residual is the distance, in the shipped figure, between an anchor star and the affine reprojection of its catalog position. The limit is 2% of the figure's long side.",
+  "note": "Each residual is the distance, in the shipped figure, between an anchor star and where a similarity (scale, rotation, translation; no shear and no mirror) puts its catalog position. The sky view places the figure with that same similarity. The limit is 2% of the figure's long side.",
   "figures": {
     "Ori": {
-      "w": 478,
+      "w": 472,
       "h": 680,
-      "spanPx": 307.1,
-      "maxPct": 0.843,
+      "spanPx": 303.4,
+      "maxPct": 0.814,
       "pass": true,
       "anchors": [
         {
           "hip": 27989,
           "name": "Betelgeuse",
-          "residualPx": 2.34,
-          "pct": 0.345,
+          "residualPx": 4.09,
+          "pct": 0.602,
           "pass": true
         },
         {
           "hip": 25336,
           "name": "Bellatrix",
-          "residualPx": 4.05,
-          "pct": 0.595,
+          "residualPx": 2.5,
+          "pct": 0.368,
           "pass": true
         },
         {
           "hip": 25930,
           "name": "Mintaka",
-          "residualPx": 3.65,
-          "pct": 0.537,
+          "residualPx": 3.98,
+          "pct": 0.586,
           "pass": true
         },
         {
           "hip": 26311,
           "name": "Alnilam",
-          "residualPx": 5.73,
-          "pct": 0.843,
+          "residualPx": 5.54,
+          "pct": 0.814,
           "pass": true
         },
         {
           "hip": 24436,
           "name": "Rigel",
-          "residualPx": 2.58,
-          "pct": 0.38,
+          "residualPx": 0.81,
+          "pct": 0.119,
           "pass": true
         },
         {
           "hip": 27366,
           "name": "Saiph",
-          "residualPx": 3.29,
-          "pct": 0.484,
+          "residualPx": 5.28,
+          "pct": 0.776,
           "pass": true
         }
       ]
@@ -57,188 +57,438 @@
       "w": 680,
       "h": 478,
       "spanPx": 330.4,
-      "maxPct": 0.718,
+      "maxPct": 0.724,
       "pass": true,
       "anchors": [
         {
           "hip": 21421,
           "name": "Aldebaran",
-          "residualPx": 3.41,
-          "pct": 0.502,
+          "residualPx": 3.04,
+          "pct": 0.447,
           "pass": true
         },
         {
           "hip": 25428,
           "name": "Elnath",
-          "residualPx": 0.37,
-          "pct": 0.054,
+          "residualPx": 0.86,
+          "pct": 0.127,
           "pass": true
         },
         {
           "hip": 20889,
           "name": "Ain",
-          "residualPx": 3.48,
-          "pct": 0.512,
+          "residualPx": 3.64,
+          "pct": 0.536,
           "pass": true
         },
         {
           "hip": 20894,
           "name": "Chamukuy",
-          "residualPx": 4.88,
-          "pct": 0.718,
+          "residualPx": 4.92,
+          "pct": 0.724,
           "pass": true
         },
         {
           "hip": 20205,
           "name": "Prima Hyadum",
-          "residualPx": 3.69,
-          "pct": 0.543,
+          "residualPx": 3.83,
+          "pct": 0.563,
           "pass": true
         },
         {
           "hip": 17702,
           "name": "Alcyone",
-          "residualPx": 1.25,
-          "pct": 0.183,
+          "residualPx": 1.7,
+          "pct": 0.25,
           "pass": true
         },
         {
           "hip": 17499,
           "name": "Electra",
-          "residualPx": 1.24,
-          "pct": 0.183,
+          "residualPx": 1.36,
+          "pct": 0.201,
+          "pass": true
+        }
+      ]
+    },
+    "Gem": {
+      "w": 680,
+      "h": 512,
+      "spanPx": 237.0,
+      "maxPct": 1.501,
+      "pass": true,
+      "anchors": [
+        {
+          "hip": 36850,
+          "name": "Castor",
+          "residualPx": 7.59,
+          "pct": 1.116,
+          "pass": true
+        },
+        {
+          "hip": 37826,
+          "name": "Pollux",
+          "residualPx": 2.78,
+          "pct": 0.409,
+          "pass": true
+        },
+        {
+          "hip": 32246,
+          "name": "Mebsuta",
+          "residualPx": 2.06,
+          "pct": 0.303,
+          "pass": true
+        },
+        {
+          "hip": 34693,
+          "name": "",
+          "residualPx": 4.12,
+          "pct": 0.606,
+          "pass": true
+        },
+        {
+          "hip": 36962,
+          "name": "",
+          "residualPx": 8.21,
+          "pct": 1.208,
+          "pass": true
+        },
+        {
+          "hip": 37740,
+          "name": "",
+          "residualPx": 10.21,
+          "pct": 1.501,
+          "pass": true
+        }
+      ]
+    },
+    "CMa": {
+      "w": 680,
+      "h": 542,
+      "spanPx": 275.5,
+      "maxPct": 0.577,
+      "pass": true,
+      "anchors": [
+        {
+          "hip": 32349,
+          "name": "Sirius",
+          "residualPx": 3.93,
+          "pct": 0.577,
+          "pass": true
+        },
+        {
+          "hip": 30324,
+          "name": "Mirzam",
+          "residualPx": 3.73,
+          "pct": 0.548,
+          "pass": true
+        },
+        {
+          "hip": 34444,
+          "name": "Wezen",
+          "residualPx": 2.16,
+          "pct": 0.317,
+          "pass": true
+        },
+        {
+          "hip": 33579,
+          "name": "Adhara",
+          "residualPx": 1.3,
+          "pct": 0.191,
+          "pass": true
+        },
+        {
+          "hip": 35904,
+          "name": "",
+          "residualPx": 2.48,
+          "pct": 0.364,
           "pass": true
         }
       ]
     },
     "UMa": {
       "w": 680,
-      "h": 550,
-      "spanPx": 286.3,
-      "maxPct": 1.238,
+      "h": 520,
+      "spanPx": 217.4,
+      "maxPct": 1.49,
       "pass": true,
       "anchors": [
         {
+          "hip": 54061,
+          "name": "Dubhe",
+          "residualPx": 5.53,
+          "pct": 0.813,
+          "pass": true
+        },
+        {
           "hip": 53910,
           "name": "Merak",
-          "residualPx": 5.78,
-          "pct": 0.85,
+          "residualPx": 2.6,
+          "pct": 0.383,
           "pass": true
         },
         {
           "hip": 58001,
           "name": "Phecda",
-          "residualPx": 8.42,
-          "pct": 1.238,
+          "residualPx": 9.42,
+          "pct": 1.385,
           "pass": true
         },
         {
           "hip": 59774,
           "name": "Megrez",
-          "residualPx": 0.53,
-          "pct": 0.078,
+          "residualPx": 10.13,
+          "pct": 1.49,
           "pass": true
         },
         {
           "hip": 62956,
           "name": "Alioth",
-          "residualPx": 1.26,
-          "pct": 0.186,
+          "residualPx": 4.14,
+          "pct": 0.609,
           "pass": true
         },
         {
           "hip": 65378,
           "name": "Mizar",
-          "residualPx": 1.3,
-          "pct": 0.191,
-          "pass": true
-        },
-        {
-          "hip": 67301,
-          "name": "Alkaid",
-          "residualPx": 3.45,
-          "pct": 0.507,
+          "residualPx": 3.39,
+          "pct": 0.498,
           "pass": true
         }
       ]
     },
     "Cyg": {
       "w": 680,
-      "h": 669,
-      "spanPx": 247.8,
-      "maxPct": 0.689,
+      "h": 627,
+      "spanPx": 216.2,
+      "maxPct": 0.924,
       "pass": true,
       "anchors": [
         {
           "hip": 102098,
           "name": "Deneb",
-          "residualPx": 3.43,
-          "pct": 0.505,
+          "residualPx": 4.94,
+          "pct": 0.727,
           "pass": true
         },
         {
           "hip": 100453,
           "name": "Sadr",
-          "residualPx": 4.68,
-          "pct": 0.689,
+          "residualPx": 3.3,
+          "pct": 0.485,
           "pass": true
         },
         {
           "hip": 97165,
           "name": "Fawaris",
-          "residualPx": 0.11,
-          "pct": 0.016,
+          "residualPx": 6.28,
+          "pct": 0.924,
           "pass": true
         },
         {
           "hip": 95947,
           "name": "Albireo",
-          "residualPx": 1.36,
-          "pct": 0.2,
+          "residualPx": 3.95,
+          "pct": 0.58,
+          "pass": true
+        }
+      ]
+    },
+    "Aql": {
+      "w": 614,
+      "h": 680,
+      "spanPx": 130.8,
+      "maxPct": 0.525,
+      "pass": true,
+      "anchors": [
+        {
+          "hip": 97649,
+          "name": "Altair",
+          "residualPx": 3.57,
+          "pct": 0.525,
+          "pass": true
+        },
+        {
+          "hip": 97278,
+          "name": "Tarazed",
+          "residualPx": 2.03,
+          "pct": 0.298,
+          "pass": true
+        },
+        {
+          "hip": 98036,
+          "name": "Alshain",
+          "residualPx": 1.55,
+          "pct": 0.229,
           "pass": true
         }
       ]
     },
     "Sco": {
-      "w": 564,
+      "w": 566,
       "h": 680,
-      "spanPx": 265.1,
-      "maxPct": 1.093,
+      "spanPx": 246.0,
+      "maxPct": 1.439,
       "pass": true,
       "anchors": [
         {
           "hip": 80763,
           "name": "Antares",
-          "residualPx": 7.3,
-          "pct": 1.074,
+          "residualPx": 3.31,
+          "pct": 0.486,
           "pass": true
         },
         {
           "hip": 81266,
           "name": "Paikauhale",
-          "residualPx": 7.43,
-          "pct": 1.093,
+          "residualPx": 8.63,
+          "pct": 1.269,
           "pass": true
         },
         {
           "hip": 82396,
           "name": "Larawag",
-          "residualPx": 0.49,
-          "pct": 0.072,
+          "residualPx": 9.79,
+          "pct": 1.439,
           "pass": true
         },
         {
           "hip": 85927,
           "name": "Shaula",
-          "residualPx": 7.24,
-          "pct": 1.065,
+          "residualPx": 8.86,
+          "pct": 1.303,
           "pass": true
         },
         {
           "hip": 86670,
           "name": "",
-          "residualPx": 6.88,
-          "pct": 1.011,
+          "residualPx": 6.06,
+          "pct": 0.891,
+          "pass": true
+        }
+      ]
+    },
+    "Leo": {
+      "w": 477,
+      "h": 680,
+      "spanPx": 290.0,
+      "maxPct": 0.218,
+      "pass": true,
+      "anchors": [
+        {
+          "hip": 49669,
+          "name": "Regulus",
+          "residualPx": 1.32,
+          "pct": 0.194,
+          "pass": true
+        },
+        {
+          "hip": 50583,
+          "name": "Algieba",
+          "residualPx": 1.48,
+          "pct": 0.218,
+          "pass": true
+        },
+        {
+          "hip": 57632,
+          "name": "Denebola",
+          "residualPx": 0.49,
+          "pct": 0.073,
+          "pass": true
+        },
+        {
+          "hip": 47908,
+          "name": "Ras Elased Australis",
+          "residualPx": 0.11,
+          "pct": 0.017,
+          "pass": true
+        },
+        {
+          "hip": 54879,
+          "name": "Chertan",
+          "residualPx": 0.08,
+          "pct": 0.011,
+          "pass": true
+        },
+        {
+          "hip": 50335,
+          "name": "Adhafera",
+          "residualPx": 0.11,
+          "pct": 0.015,
+          "pass": true
+        },
+        {
+          "hip": 49583,
+          "name": "",
+          "residualPx": 0.08,
+          "pct": 0.011,
+          "pass": true
+        },
+        {
+          "hip": 48455,
+          "name": "Rasalas",
+          "residualPx": 0.09,
+          "pct": 0.014,
+          "pass": true
+        }
+      ]
+    },
+    "And": {
+      "w": 476,
+      "h": 680,
+      "spanPx": 291.1,
+      "maxPct": 0.651,
+      "pass": true,
+      "anchors": [
+        {
+          "hip": 677,
+          "name": "Alpheratz",
+          "residualPx": 2.12,
+          "pct": 0.312,
+          "pass": true
+        },
+        {
+          "hip": 5447,
+          "name": "Mirach",
+          "residualPx": 4.43,
+          "pct": 0.651,
+          "pass": true
+        },
+        {
+          "hip": 9640,
+          "name": "Almach",
+          "residualPx": 2.31,
+          "pct": 0.339,
+          "pass": true
+        }
+      ]
+    },
+    "Per": {
+      "w": 557,
+      "h": 680,
+      "spanPx": 178.9,
+      "maxPct": 1.136,
+      "pass": true,
+      "anchors": [
+        {
+          "hip": 15863,
+          "name": "Mirfak",
+          "residualPx": 7.64,
+          "pct": 1.123,
+          "pass": true
+        },
+        {
+          "hip": 14576,
+          "name": "Algol",
+          "residualPx": 3.25,
+          "pct": 0.477,
+          "pass": true
+        },
+        {
+          "hip": 17358,
+          "name": "Sarvvis",
+          "residualPx": 7.73,
+          "pct": 1.136,
           "pass": true
         }
       ]

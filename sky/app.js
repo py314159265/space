@@ -28,6 +28,7 @@
   const canvas = $("sky");
   const ctx = canvas.getContext("2d", { alpha: false });
   const params = new URLSearchParams(location.search);
+  const showAnchors = params.get("anchors") === "1";
 
   let stars = [];
   let starByHip = new Map();
@@ -460,39 +461,28 @@
     }
     return rec.ready ? rec : null;
   }
-  function solveAffine(src, dst) {
+  // Scale, rotation, and translation only. A full affine shears an engraved
+  // plate onto the stars and throws the body off the asterism it belongs to.
+  function solveSimilarity(src, dst) {
     if (src.length < 3) return null;
-    const ata = Array.from({ length: 6 }, () => new Float64Array(6));
-    const atb = new Float64Array(6);
+    let mx = 0, my = 0, mu = 0, mv = 0;
     for (let i = 0; i < src.length; i++) {
-      const x = src[i].x, y = src[i].y;
-      const rows = [
-        [x, y, 1, 0, 0, 0, dst[i].x],
-        [0, 0, 0, x, y, 1, dst[i].y],
-      ];
-      for (const row of rows) {
-        for (let c = 0; c < 6; c++) {
-          atb[c] += row[c] * row[6];
-          for (let k = 0; k < 6; k++) ata[c][k] += row[c] * row[k];
-        }
-      }
+      mx += src[i].x; my += src[i].y; mu += dst[i].x; mv += dst[i].y;
     }
-    const m = [];
-    for (let r = 0; r < 6; r++) m.push([...ata[r], atb[r]]);
-    for (let col = 0; col < 6; col++) {
-      let pivot = col;
-      for (let r = col + 1; r < 6; r++) if (Math.abs(m[r][col]) > Math.abs(m[pivot][col])) pivot = r;
-      if (Math.abs(m[pivot][col]) < 1e-8) return null;
-      const tmp = m[col]; m[col] = m[pivot]; m[pivot] = tmp;
-      const div = m[col][col];
-      for (let c = col; c < 7; c++) m[col][c] /= div;
-      for (let r = 0; r < 6; r++) {
-        if (r === col) continue;
-        const f = m[r][col];
-        for (let c = col; c < 7; c++) m[r][c] -= f * m[col][c];
-      }
+    const n = src.length;
+    mx /= n; my /= n; mu /= n; mv /= n;
+    let varxy = 0, aNum = 0, bNum = 0;
+    for (let i = 0; i < src.length; i++) {
+      const x = src[i].x - mx, y = src[i].y - my;
+      const u = dst[i].x - mu, v = dst[i].y - mv;
+      varxy += x * x + y * y;
+      aNum += x * u + y * v;
+      bNum += x * v - y * u;
     }
-    return m.map((row) => row[6]);
+    if (varxy < 1e-6) return null;
+    const a = aNum / varxy;
+    const b = bNum / varxy;
+    return [a, b, mu - (a * mx - b * my), mv - (b * mx + a * my)];
   }
   function pickAnchors(meta, hipPos) {
     const pts = [];
@@ -524,7 +514,7 @@
       const img = night && rec.red ? rec.red : rec.img;
       const tri = pickAnchors(meta, hipPos);
       if (!tri) continue;
-      const aff = solveAffine(
+      const aff = solveSimilarity(
         tri.map((p) => ({ x: p.sx, y: p.sy })),
         tri.map((p) => ({ x: p.dx, y: p.dy })),
       );
@@ -536,8 +526,8 @@
       let alpha = 0.20 * zoom * horizon;
       if (night) alpha *= 0.9;
       if (alpha < 0.02) continue;
-      const [A, B, C, D, E, F] = aff;
-      const scale = Math.hypot(A, D);
+      const [a, b, tx, ty] = aff;
+      const scale = Math.hypot(a, b);
       if (scale > 12 || scale < 0.015) continue;
       ctx.save();
       ctx.beginPath();
@@ -548,10 +538,36 @@
       const pad = Math.max(maxX - minX, maxY - minY) * 1.25;
       ctx.rect(minX - pad, minY - pad, maxX - minX + pad * 2, maxY - minY + pad * 2);
       ctx.clip();
-      ctx.setTransform(A * dpr, D * dpr, B * dpr, E * dpr, C * dpr, F * dpr);
+      ctx.setTransform(a * dpr, b * dpr, -b * dpr, a * dpr, tx * dpr, ty * dpr);
       ctx.globalAlpha = alpha;
       ctx.drawImage(img, 0, 0);
       ctx.restore();
+      if (showAnchors) {
+        ctx.save();
+        ctx.globalAlpha = 1;
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = "#3dffb0";
+        ctx.fillStyle = "#3dffb0";
+        ctx.font = "600 11px Source Sans 3, sans-serif";
+        ctx.textAlign = "left";
+        for (const p of tri) {
+          const x = a * p.sx - b * p.sy + tx;
+          const y = b * p.sx + a * p.sy + ty;
+          ctx.beginPath();
+          ctx.arc(x, y, 5, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(x - 8, y); ctx.lineTo(x + 8, y);
+          ctx.moveTo(x, y - 8); ctx.lineTo(x, y + 8);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(x, y); ctx.lineTo(p.dx, p.dy);
+          ctx.stroke();
+          const err = Math.hypot(x - p.dx, y - p.dy);
+          ctx.fillText(String(Math.round(err)), x + 7, y - 7);
+        }
+        ctx.restore();
+      }
     }
   }
 
