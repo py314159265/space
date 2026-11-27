@@ -1,0 +1,17 @@
+Nightglass star positions are a subset of the HYG catalog, version 4.4,
+compiled by David Nash (astronexus). That catalog is licensed under
+Creative Commons Attribution-ShareAlike 4.0 International:
+https://creativecommons.org/licenses/by-sa/4.0/
+
+The subset keeps stars of visual magnitude 5.0 and brighter, plus a few
+fainter stars needed to complete a stick figure. Positions are mean places
+from the catalog. Proper names included here follow the names carried in
+that catalog.
+
+Constellation stick figures in sky/data/figures.json are traditional
+patterns written as pairs of catalog stars. They are recorded as
+astronomical facts, not copied from a chart or a software transcription.
+
+Planet, Moon, and Sun positions are computed with astronomy-engine by
+Don Cross, vendored at sky/vendor/astronomy.browser.min.js under the
+MIT license. The license text is in sky/vendor/LICENSE.
