@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Brewnian Motion</title>
+  <meta name="description" content="Don't spill the coffee. A phone game on space.example.com.">
+  <meta name="theme-color" content="#2a1c14">
+  <meta name="color-scheme" content="dark">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,680&family=Source+Sans+3:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <section class="gate" id="gate">
+    <p class="kicker">A walking drink</p>
+    <h1>Brewnian Motion</h1>
+    <p class="sub">Don't spill the coffee</p>
+    <div class="modes" role="group" aria-label="Mode">
+      <button type="button" class="card on" data-mode="endurance">
+        <strong>Endurance</strong>
+        <span>Steps until you spill out</span>
+      </button>
+      <button type="button" class="card" data-mode="sprint">
+        <strong>Sprint</strong>
+        <span>Steps until the clock or a spill</span>
+      </button>
+    </div>
+    <div class="sprint-times" id="sprint-times" hidden>
+      <button type="button" data-secs="10" class="on">10s</button>
+      <button type="button" data-secs="15">15s</button>
+    </div>
+    <div class="diffs" role="group" aria-label="Difficulty">
+      <button type="button" data-diff="easy">Easy</button>
+      <button type="button" data-diff="medium" class="on">Medium</button>
+      <button type="button" data-diff="hard">Hard</button>
+    </div>
+    <p class="hint" id="hint">Medium · 8° tilt tolerance</p>
+    <button type="button" class="start" id="start">Tap to start</button>
+    <p class="note">Uses the motion sensor. The cup stays full. You do the walking.</p>
+  </section>
+
+  <div class="play" id="play" hidden>
+    <canvas id="c"></canvas>
+    <div class="hud">
+      <div>
+        <p class="label">Steps</p>
+        <p class="steps" id="steps">0</p>
+      </div>
+      <p class="badge" id="badge">Medium</p>
+      <div class="meter-wrap">
+        <p class="label">Spill</p>
+        <div class="meter"><span id="meter"></span></div>
+      </div>
+      <p class="timer" id="timer" hidden>10.0</p>
+    </div>
+    <p class="hold" id="hold">Hold level · keep walking</p>
+    <p class="count" id="count" hidden>3</p>
+  </div>
+
+  <section class="over" id="over" hidden>
+    <p class="kicker">Brewnian Motion</p>
+    <h2 id="over-title">Spilled</h2>
+    <p class="over-mode" id="over-mode"></p>
+    <p class="over-steps" id="over-steps">0</p>
+    <p class="over-note" id="over-note"></p>
+    <p class="best" id="best"></p>
+    <div class="over-actions">
+      <button type="button" id="share">Share</button>
+      <button type="button" id="again" class="start">Play again</button>
+    </div>
+  </section>
+  <script src="app.js"></script>
+</body>
+</html>

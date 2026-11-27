@@ -1,0 +1,80 @@
+:root {
+  --foam: #f6efe4;
+  --paper: #f3e2c4;
+  --caramel: #c47a3a;
+  --espresso: #3a2418;
+  --ink: #2a1c14;
+  --cream: #fff8ee;
+  --serif: "Fraunces", Palatino, serif;
+  --sans: "Source Sans 3", "Helvetica Neue", sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--ink); color: var(--cream); font-family: var(--sans); }
+button { font: inherit; color: inherit; cursor: pointer; }
+[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--caramel); outline-offset: 3px; }
+
+.gate, .over {
+  min-height: 100%;
+  min-height: 100dvh;
+  padding: 1.4rem 1.1rem 2rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  background:
+    radial-gradient(70% 40% at 50% 0%, rgba(196, 122, 58, 0.28), transparent 70%),
+    var(--ink);
+}
+.kicker { margin: 0; letter-spacing: 0.22em; text-transform: uppercase; color: var(--caramel); font-size: 12px; }
+h1, h2 { margin: 0.2rem 0 0; font-family: var(--serif); font-weight: 680; font-size: clamp(2.2rem, 8vw, 3.3rem); line-height: 1.02; }
+.sub { margin: 0.35rem 0 1rem; font-family: var(--serif); font-size: 1.25rem; color: var(--paper); }
+.modes, .diffs, .sprint-times, .over-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+.card, .diffs button, .sprint-times button, .over-actions button {
+  border: 1px solid rgba(243, 226, 196, 0.28);
+  background: rgba(58, 36, 24, 0.45);
+  border-radius: 16px;
+  text-align: left;
+}
+.card { flex: 1 1 9rem; min-height: 5.4rem; padding: 0.85rem 0.9rem; }
+.card strong { display: block; font-family: var(--serif); font-size: 1.35rem; }
+.card span { display: block; margin-top: 0.25rem; color: var(--paper); font-size: 0.92rem; }
+.card.on, .diffs button.on, .sprint-times button.on { border-color: var(--caramel); background: rgba(196, 122, 58, 0.22); }
+.sprint-times { margin-top: 0.7rem; }
+.sprint-times button, .diffs button { min-height: 2.7rem; padding: 0 0.9rem; border-radius: 999px; }
+.diffs { margin-top: 0.9rem; }
+.hint, .note, .best, .over-note, .over-mode { color: var(--paper); }
+.hint { margin: 0.7rem 0 0; }
+.note { margin: 0.8rem 0 0; font-size: 0.9rem; max-width: 22rem; }
+.start {
+  margin-top: 1.1rem; min-height: 3.4rem; border: 0; border-radius: 999px;
+  background: var(--caramel); color: #2a1408; font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; font-size: 1rem;
+}
+.play { position: relative; height: 100%; height: 100dvh; overflow: hidden; background: #24180f; touch-action: none; }
+#c { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.hud {
+  position: absolute; top: max(10px, env(safe-area-inset-top)); left: 10px; right: 10px;
+  display: flex; align-items: center; gap: 0.7rem;
+  padding: 0.55rem 0.75rem; border-radius: 18px;
+  background: rgba(42, 28, 20, 0.78); border: 1px solid rgba(243, 226, 196, 0.2);
+}
+.label { margin: 0; letter-spacing: 0.16em; text-transform: uppercase; font-size: 10px; color: var(--paper); }
+.steps { margin: 0; font-family: var(--serif); font-size: 2rem; line-height: 1; }
+.badge { margin: 0; padding: 0.25rem 0.55rem; border-radius: 999px; background: rgba(196, 122, 58, 0.3); font-size: 0.85rem; }
+.meter-wrap { flex: 1; min-width: 4rem; }
+.meter { height: 8px; border-radius: 99px; background: rgba(255, 248, 238, 0.15); overflow: hidden; }
+.meter span { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #e7b56a, #8a3d16); }
+.timer { margin: 0; font-family: var(--serif); font-size: 1.6rem; }
+.hold, .count {
+  position: absolute; left: 0; right: 0; text-align: center; margin: 0;
+}
+.hold { bottom: max(16px, env(safe-area-inset-bottom)); letter-spacing: 0.08em; color: var(--paper); }
+.count {
+  top: 42%; font-family: var(--serif); font-size: 5rem; color: var(--cream);
+  text-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.over-steps { margin: 0.4rem 0; font-family: var(--serif); font-size: 4.2rem; line-height: 0.9; }
+.over-actions { margin-top: 1rem; }
+.over-actions button { min-height: 3rem; padding: 0 1rem; }
+.over-actions .start { margin-top: 0; }
