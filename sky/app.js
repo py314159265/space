@@ -5,6 +5,8 @@
   const STORE_LOC = "nightglass-loc";
   const STORE_CAL = "nightglass-cal";
   const STORE_ART = "nightglass-art";
+  const STORE_LINES = "nightglass-lines";
+  const LINE_LABEL = { standard: "Standard", figure: "Figure", off: "Off" };
   const DEFAULT_LOC = { lat: 34.08, lon: -118.07 };
   const PLANETS = ["Mercury", "Venus", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune"];
   const CON_NAME = {
@@ -33,6 +35,8 @@
   let stars = [];
   let starByHip = new Map();
   let figures = [];
+  let figureLines = new Map();
+  let lineMode = "standard";
   let constMeta = {};
   let cons = [];
   let names = {};
@@ -82,6 +86,9 @@
       const cal = JSON.parse(localStorage.getItem(STORE_CAL) || "null");
       if (cal && Number.isFinite(cal.offset)) headingOffset = cal.offset;
       if (localStorage.getItem(STORE_ART) === "0") showArt = false;
+      const savedLines = localStorage.getItem(STORE_LINES);
+      if (savedLines === "standard" || savedLines === "figure" || savedLines === "off") lineMode = savedLines;
+      showLines = lineMode !== "off";
     } catch (err) { /* keep defaults */ }
     $("lat").value = lat.toFixed(2);
     $("lon").value = lon.toFixed(2);
@@ -626,7 +633,7 @@
       ctx.lineWidth = 1;
       for (const fig of figures) {
         ctx.beginPath();
-        for (const [a, b] of fig.lines) {
+        for (const [a, b] of linesOf(fig)) {
           const pa = hipPos.get(a), pb = hipPos.get(b);
           if (!pa || !pb) continue;
           ctx.moveTo(pa.x, pa.y);
@@ -646,7 +653,7 @@
           if (p) { sx = p.x; sy = p.y; n = 1; }
         }
         const seen = new Set();
-        for (const pair of fig.lines) {
+        for (const pair of linesOf(fig)) {
           for (const hip of pair) {
             if (seen.has(hip)) continue;
             seen.add(hip);
@@ -729,6 +736,7 @@
       when: when.toISOString(),
       lat, lon, live, night,
       view: { az: azDeg, alt: pose.alt * RAD, fov },
+      lineMode,
       moonPhase,
       phase: phaseName(moonPhase),
       bodies: Object.fromEntries(bodies.filter((b) => b.hor).map((b) => [b.name, {
@@ -745,7 +753,7 @@
       })),
       visible: figures.filter((fig) => {
         if (fig.hip && hipPos.has(fig.hip)) return true;
-        return fig.lines.some(([a, b]) => hipPos.has(a) && hipPos.has(b));
+        return linesOf(fig).some(([a, b]) => hipPos.has(a) && hipPos.has(b));
       }).map((fig) => fig.name),
     };
     requestAnimationFrame(frame);
@@ -956,6 +964,22 @@
     if (ra < 0) ra += 24;
     return { ra, dec };
   }
+  function linesOf(fig) {
+    if (lineMode === "figure") {
+      const alt = figureLines.get(fig.id);
+      if (alt && alt.length) return alt;
+    }
+    return fig.lines;
+  }
+  function applyLineMode() {
+    showLines = lineMode !== "off";
+    const btn = document.querySelector('[data-key="lines"]');
+    if (!btn) return;
+    btn.setAttribute("aria-pressed", showLines ? "true" : "false");
+    btn.setAttribute("aria-label", `Lines, ${LINE_LABEL[lineMode].toLowerCase()}`);
+    const mode = $("lines-mode");
+    if (mode) mode.textContent = LINE_LABEL[lineMode];
+  }
   function figureSpot(fig, hipPos) {
     let sx = 0, sy = 0, n = 0;
     if (fig.hip && hipPos.has(fig.hip)) {
@@ -963,7 +987,7 @@
       sx = p.x; sy = p.y; n = 1;
     }
     const seen = new Set();
-    for (const pair of fig.lines) {
+    for (const pair of linesOf(fig)) {
       for (const hip of pair) {
         if (seen.has(hip)) continue;
         seen.add(hip);
@@ -1200,12 +1224,18 @@
     $("guide-cancel").addEventListener("click", clearGuide);
     const artBtn = document.querySelector('[data-key="art"]');
     if (artBtn) artBtn.setAttribute("aria-pressed", showArt ? "true" : "false");
+    applyLineMode();
     document.querySelectorAll(".toggles button").forEach((btn) => {
       btn.addEventListener("click", () => {
         const key = btn.dataset.key;
+        if (key === "lines") {
+          lineMode = lineMode === "standard" ? "figure" : lineMode === "figure" ? "off" : "standard";
+          try { localStorage.setItem(STORE_LINES, lineMode); } catch (err) { /* keep the choice for this visit */ }
+          applyLineMode();
+          return;
+        }
         const on = btn.getAttribute("aria-pressed") !== "true";
         btn.setAttribute("aria-pressed", on ? "true" : "false");
-        if (key === "lines") showLines = on;
         if (key === "labels") showLabels = on;
         if (key === "grid") showGrid = on;
         if (key === "art") {
@@ -1266,11 +1296,12 @@
     loadStore();
     resize();
     bind();
-    const [starFile, figFile, conFile, artFile] = await Promise.all([
+    const [starFile, figFile, conFile, artFile, figureFile] = await Promise.all([
       fetch("data/stars.json").then((r) => r.json()),
       fetch("data/figures.json").then((r) => r.json()),
       fetch("data/constellations.json").then((r) => r.json()),
       fetch("data/art/index.json").then((r) => r.json()),
+      fetch("data/figure-lines.json").then((r) => r.json()),
     ]);
     constMeta = conFile;
     artIndex = artFile;
@@ -1280,6 +1311,9 @@
     starByHip = new Map(stars.map((s) => [s.hip, s]));
     buildArtFits();
     figures = figFile;
+    // Original stick figures joined from catalog stars. A constellation
+    // without an entry keeps its standard lines.
+    figureLines = new Map(figureFile.map((fig) => [fig.id, fig.lines]));
     refreshBodies();
     requestAnimationFrame(frame);
   }

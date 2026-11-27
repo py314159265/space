@@ -136,6 +136,10 @@ h1 {
   font-size: 11px; color: var(--dim); cursor: pointer;
 }
 .toggles button[aria-pressed="true"] { border-color: var(--gold); color: var(--paper); }
+.toggles button .mode {
+  display: block; margin-top: 0.12rem; letter-spacing: 0.04em;
+  text-transform: none; font-size: 9px; line-height: 1;
+}
 
 .find {
   position: absolute; z-index: 4; left: 10px; right: 10px;
