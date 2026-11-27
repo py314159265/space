@@ -57,10 +57,23 @@
   const ripples = [];
   const drops = [];
   const stains = [];
-  let foam = [];
   let lastStep = 0;
-  let stepArmed = true;
-  let env = 0;
+  const G = 9.80665;
+  const gLp = { x: 0, y: 0, z: G };
+  const tiltLp = { x: 0, y: 0, z: G };
+  const horiz = { x: 0, y: 0 };
+  const tiltTarget = { x: 0, y: 0 };
+  let linPrev = 0;
+  let hp = 0;
+  let bp = 0;
+  let inPeak = false;
+  let peakVal = 0;
+  let peakStart = 0;
+  let lastMotionT = 0;
+  const bandHist = [];
+  const motionTimes = [];
+  const sensor = { field: "none", vert: 0, threshold: 0.06 * G, hz: 0 };
+  const debugOn = new URLSearchParams(location.search).get("debug") === "1";
   let w = 1, h = 1, dpr = 1;
   let paper = { x: 0, y: 0, w: 0, h: 0, lineH: 0, top: 0 };
   let cup = { x: 0, y: 0, r: 0 };
@@ -97,9 +110,6 @@
     };
     const passY = paper.top + PASSWORD_LINE * paper.lineH + paper.lineH * 0.35;
     cup = { x: paper.x + pw / 2, y: passY, r: Math.min(pw * 0.22, 84) };
-    if (!foam.length) {
-      foam = Array.from({ length: 7 }, (_, i) => ({ a: i, r: 0.15 + (i % 3) * 0.05, o: i * 0.7 }));
-    }
   }
 
   function bestKey() { return `brewnian-best-${mode}-${diff}-${mode === "sprint" ? sprintSecs : "run"}`; }
@@ -112,11 +122,12 @@
     return Math.max(prev, steps);
   }
 
-  function inject(energy, ang) {
-    surf.vx += Math.cos(ang) * energy;
-    surf.vy += Math.sin(ang) * energy;
-    ripples.push({ amp: energy * 0.35, freq: 7 + Math.random() * 4, decay: 1.6, t: 0, ang });
-    if (ripples.length > 6) ripples.shift();
+  function nudge(ang, energy) {
+    const kick = energy * 0.16;
+    surf.vx += Math.cos(ang) * kick;
+    surf.vy += Math.sin(ang) * kick;
+    ripples.push({ t: 0, amp: Math.min(0.2, 0.07 + energy * 0.03) });
+    if (ripples.length > 3) ripples.shift();
   }
 
   function paintSpill() {
@@ -177,79 +188,157 @@
   }
 
   function countStep(now) {
-    if (now - lastStep < 250) return;
+    if (now - lastStep < 280) return;
     lastStep = now;
     steps += 1;
-    $("steps").textContent = String(steps);
-    inject(1.4, Math.random() * Math.PI * 2);
+    const el = $("steps");
+    el.textContent = String(steps);
+    el.classList.add("bump");
+    setTimeout(() => el.classList.remove("bump"), 160);
+    nudge(Math.random() * Math.PI * 2, 1);
+  }
+
+  function asMeters(v) {
+    const mag = Math.hypot(v.x, v.y, v.z);
+    if (mag > 0.4 && mag < 3.2) return { x: v.x * G, y: v.y * G, z: v.z * G };
+    return v;
+  }
+
+  function considerStep(now, threshold) {
+    if (!playing || calibrating) return;
+    if (!inPeak && bp > threshold) {
+      inPeak = true;
+      peakVal = bp;
+      peakStart = now;
+    } else if (inPeak) {
+      if (bp > peakVal) peakVal = bp;
+      if (bp < threshold * 0.55) {
+        const width = now - peakStart;
+        inPeak = false;
+        const gap = now - lastStep;
+        if (width > 70 && width < 700 && gap >= 280 && peakVal >= threshold) countStep(now);
+      }
+    }
   }
 
   function onMotion(event) {
-    const g = event.accelerationIncludingGravity;
-    const a = event.acceleration;
-    if (g && g.x != null) {
-      grav = { x: g.x, y: g.y, z: g.z };
-      gotMotion = true;
-      useMouse = false;
-      if (calibrating) {
-        level.x += (g.x - level.x) * 0.2;
-        level.y += (g.y - level.y) * 0.2;
-        level.z += (g.z - level.z) * 0.2;
-      }
+    const now = performance.now();
+    const dt = lastMotionT ? clamp((now - lastMotionT) / 1000, 0.008, 0.05) : 0.016;
+    lastMotionT = now;
+    motionTimes.push(now);
+    while (motionTimes.length && now - motionTimes[0] > 1000) motionTimes.shift();
+    sensor.hz = motionTimes.length;
+
+    const incl = event.accelerationIncludingGravity;
+    const raw = event.acceleration;
+    let sample = null;
+    if (incl && incl.x != null && incl.y != null && incl.z != null) {
+      sample = asMeters(incl);
+      sensor.field = "accelerationIncludingGravity";
+    } else if (raw && raw.x != null && raw.y != null && raw.z != null) {
+      sample = asMeters(raw);
+      sensor.field = "acceleration";
     }
-    if (!playing || calibrating || !a || a.x == null) return;
-    const mag = Math.hypot(a.x, a.y, a.z);
-    env += (mag - env) * 0.08;
-    const pulse = mag - env;
-    if (pulse > 2.4 && stepArmed) {
-      countStep(performance.now());
-      stepArmed = false;
-    } else if (pulse < 0.8) stepArmed = true;
-    if (mag > cfg().jolt * 9.81) {
-      const ang = Math.atan2(a.y, a.x);
-      inject(mag / 9.81, ang);
-      if (mag > cfg().jolt * 9.81 * 1.15) spillAt(ang, 8);
+    if (!sample) return;
+
+    const aG = 1 - Math.exp(-dt * 2 * Math.PI * 0.4);
+    const aT = 1 - Math.exp(-dt * 2 * Math.PI * 4);
+    gLp.x += (sample.x - gLp.x) * aG;
+    gLp.y += (sample.y - gLp.y) * aG;
+    gLp.z += (sample.z - gLp.z) * aG;
+    tiltLp.x += (sample.x - tiltLp.x) * aT;
+    tiltLp.y += (sample.y - tiltLp.y) * aT;
+    tiltLp.z += (sample.z - tiltLp.z) * aT;
+    grav = { x: tiltLp.x, y: tiltLp.y, z: tiltLp.z };
+    gotMotion = true;
+    if (!(useMouse && mouse.on)) useMouse = false;
+
+    const lin = sensor.field === "acceleration"
+      ? sample
+      : { x: sample.x - gLp.x, y: sample.y - gLp.y, z: sample.z - gLp.z };
+    const gm = Math.hypot(gLp.x, gLp.y, gLp.z) || G;
+    const vert = sensor.field === "acceleration" && raw
+      ? (raw.z != null ? asMeters(raw).z : Math.hypot(lin.x, lin.y, lin.z))
+      : (lin.x * gLp.x + lin.y * gLp.y + lin.z * gLp.z) / gm;
+    const ux = gLp.x / gm;
+    const uy = gLp.y / gm;
+    const hx = lin.x - vert * ux;
+    const hy = lin.y - vert * uy;
+    const hpA = (1 / (2 * Math.PI)) / (1 / (2 * Math.PI) + dt);
+    hp = hpA * (hp + vert - linPrev);
+    linPrev = vert;
+    bp += (hp - bp) * (1 - Math.exp(-dt * 2 * Math.PI * 3.2));
+    bandHist.push({ t: now, v: bp });
+    while (bandHist.length && now - bandHist[0].t > 2000) bandHist.shift();
+    let mean = 0;
+    for (const s of bandHist) mean += s.v;
+    mean /= bandHist.length || 1;
+    let variance = 0;
+    for (const s of bandHist) variance += (s.v - mean) * (s.v - mean);
+    const std = Math.sqrt(variance / (bandHist.length || 1));
+    const threshold = Math.max(0.055 * G, mean + 0.9 * std);
+    sensor.vert = vert;
+    sensor.threshold = threshold;
+    considerStep(now, threshold);
+
+    if (playing && !calibrating) {
+      const linMag = Math.hypot(lin.x, lin.y, lin.z);
+      if (linMag > cfg().jolt * G) {
+        const ang = Math.atan2(hy, hx || 0.0001);
+        nudge(ang, linMag / G);
+        if (linMag > cfg().jolt * G * 1.15) spillAt(ang, 8);
+      }
+      const driveA = 1 - Math.exp(-dt * 2 * Math.PI * 6);
+      horiz.x += (hx / G - horiz.x) * driveA;
+      horiz.y += (hy / G - horiz.y) * driveA;
+    }
+    const gz = Math.abs(tiltLp.z) + 0.4;
+    tiltTarget.x = Math.atan2(tiltLp.x - level.x, gz);
+    tiltTarget.y = Math.atan2(tiltLp.y - level.y, gz);
+    if (calibrating) {
+      level.x += (tiltLp.x - level.x) * 0.2;
+      level.y += (tiltLp.y - level.y) * 0.2;
+      level.z += (tiltLp.z - level.z) * 0.2;
     }
   }
 
   function onOrient(event) {
     if (gotMotion || event.beta == null) return;
-    grav = {
-      x: Math.sin(event.gamma * Math.PI / 180) * 9.8,
-      y: Math.sin(event.beta * Math.PI / 180) * 9.8,
-      z: 9.8,
-    };
+    sensor.field = "orientation";
+    const beta = event.beta * Math.PI / 180;
+    const gamma = (event.gamma || 0) * Math.PI / 180;
+    grav = { x: Math.sin(gamma) * G, y: Math.sin(beta) * G, z: Math.cos(beta) * G };
+    tiltLp.x = grav.x;
+    tiltLp.y = grav.y;
+    tiltLp.z = grav.z;
+    const gz = Math.abs(grav.z) + 0.4;
+    tiltTarget.x = Math.atan2(grav.x - level.x, gz);
+    tiltTarget.y = Math.atan2(grav.y - level.y, gz);
   }
 
-  function targets() {
+  function tick(dt) {
     if (useMouse && mouse.on) {
       const nx = clamp((mouse.x - w / 2) / (w * 0.45), -1, 1);
       const ny = clamp((mouse.y - h / 2) / (h * 0.45), -1, 1);
       const max = cfg().tilt * Math.PI / 180;
-      return { x: nx * max * 1.35, y: ny * max * 1.35 };
+      tiltTarget.x = nx * max;
+      tiltTarget.y = ny * max;
+      horiz.x = 0;
+      horiz.y = 0;
     }
-    const gx = grav.x - level.x;
-    const gy = grav.y - level.y;
-    const gz = grav.z - level.z || 9.8;
-    return { x: Math.atan2(gx, Math.abs(gz) + 0.01), y: Math.atan2(gy, Math.abs(gz) + 0.01) };
-  }
-
-  function tick(dt) {
-    const aim = targets();
-    const stiff = 34;
-    const damp = 5.2;
-    surf.vx += (-stiff * (surf.x - aim.x) - damp * surf.vx) * dt;
-    surf.vy += (-stiff * (surf.y - aim.y) - damp * surf.vy) * dt;
-    surf.x += surf.vx * dt;
-    surf.y += surf.vy * dt;
-    for (const r of ripples) r.t += dt;
+    const freq = 2.5;
+    const omega = 2 * Math.PI * freq;
+    const zeta = 0.12;
+    const drive = 0.45;
+    surf.vx += (-2 * zeta * omega * surf.vx - omega * omega * (surf.x - tiltTarget.x) + horiz.x * drive * omega) * dt;
+    surf.vy += (-2 * zeta * omega * surf.vy - omega * omega * (surf.y - tiltTarget.y) + horiz.y * drive * omega) * dt;
+    surf.x = clamp(surf.x + surf.vx * dt, -0.7, 0.7);
+    surf.y = clamp(surf.y + surf.vy * dt, -0.7, 0.7);
     for (let i = ripples.length - 1; i >= 0; i--) {
-      ripples[i].amp *= Math.exp(-ripples[i].decay * dt);
-      if (ripples[i].amp < 0.01) ripples.splice(i, 1);
+      ripples[i].t += dt;
+      if (ripples[i].t > 0.6) ripples.splice(i, 1);
     }
-    let wave = 0;
-    for (const r of ripples) wave += r.amp * Math.sin(r.freq * r.t);
-    const amp = Math.hypot(surf.x, surf.y) + Math.abs(wave) * 0.25;
+    const amp = Math.hypot(surf.x, surf.y);
     const limit = cfg().tilt * Math.PI / 180;
     if (playing && !calibrating && amp > limit) {
       spillAt(Math.atan2(surf.y, surf.x), (amp - limit) * 40 * dt);
@@ -262,7 +351,6 @@
       d.y += d.vy * dt;
       if (d.life <= 0) drops.splice(i, 1);
     }
-    for (const f of foam) f.o += dt * 0.6;
     if (playing && mode === "sprint" && !calibrating) {
       left = Math.max(0, sprintSecs - (performance.now() - startedAt) / 1000);
       const secs = Math.ceil(left);
@@ -380,13 +468,12 @@
     for (const s of stains) drawStain(s);
     ctx.restore();
 
-    const tilt = Math.hypot(surf.x, surf.y);
-    const aim = tilt > 0.0001 ? Math.atan2(surf.y, surf.x) : 0;
-    const pool = Math.min(cup.r * 0.22, tilt * cup.r * 1.4);
-    const ox = Math.cos(aim) * pool;
-    const oy = Math.sin(aim) * pool;
+    const slope = Math.hypot(surf.x, surf.y);
+    const aim = slope > 0.0001 ? Math.atan2(surf.y, surf.x) : 0;
     const inner = cup.r * 0.74;
     const saucer = cup.r * 1.36;
+    const hx = Math.cos(aim);
+    const hy = Math.sin(aim);
 
     ctx.save();
     ctx.shadowColor = "rgba(58, 36, 24, 0.22)";
@@ -412,43 +499,54 @@
     ctx.beginPath();
     ctx.arc(cup.x, cup.y, inner, 0, Math.PI * 2);
     ctx.clip();
-    const coffee = ctx.createRadialGradient(cup.x + ox * 0.6, cup.y + oy * 0.6, inner * 0.15, cup.x + ox, cup.y + oy, inner * 1.05);
-    coffee.addColorStop(0, "#8d5130");
-    coffee.addColorStop(0.55, "#623418");
-    coffee.addColorStop(1, "#4a2814");
+    const coffee = ctx.createRadialGradient(cup.x, cup.y, inner * 0.12, cup.x, cup.y, inner);
+    coffee.addColorStop(0, "#3f2416");
+    coffee.addColorStop(0.62, "#6a3a20");
+    coffee.addColorStop(1, "#c4894e");
     ctx.fillStyle = coffee;
     ctx.fillRect(cup.x - inner, cup.y - inner, inner * 2, inner * 2);
-    const thin = clamp(tilt / (cfg().tilt * Math.PI / 180), 0, 1);
-    if (thin > 0.05) {
-      ctx.globalAlpha = 0.55 * thin;
-      ctx.fillStyle = "#f4eadc";
-      ctx.beginPath();
-      ctx.ellipse(
-        cup.x - Math.cos(aim) * inner * 0.9,
-        cup.y - Math.sin(aim) * inner * 0.9,
-        inner * 0.16,
-        inner * 0.055,
-        aim + Math.PI / 2,
-        0,
-        Math.PI * 2,
-      );
-      ctx.fill();
-      ctx.globalAlpha = 1;
-    }
-    ctx.globalAlpha = 0.55;
-    ctx.fillStyle = "#e7c48a";
-    for (const f of foam) {
-      const fx = cup.x + ox * 1.35 + Math.cos(f.o + f.a) * inner * f.r * 0.85;
-      const fy = cup.y + oy * 1.35 + Math.sin(f.o * 0.8 + f.a) * inner * f.r * 0.65;
-      ctx.beginPath();
-      ctx.ellipse(fx, fy, inner * 0.16, inner * 0.09, f.a, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 0.4;
-    ctx.fillStyle = "#fff6e4";
+    const shade = ctx.createLinearGradient(cup.x - hx * inner, cup.y - hy * inner, cup.x + hx * inner, cup.y + hy * inner);
+    shade.addColorStop(0, "rgba(24, 10, 4, 0.42)");
+    shade.addColorStop(0.38, "rgba(24, 10, 4, 0.04)");
+    shade.addColorStop(0.72, "rgba(255, 210, 150, 0)");
+    shade.addColorStop(1, "rgba(255, 214, 160, 0.22)");
+    ctx.fillStyle = shade;
+    ctx.fillRect(cup.x - inner, cup.y - inner, inner * 2, inner * 2);
+    const slide = Math.min(inner * 0.34, slope * inner * 2.4);
+    ctx.globalAlpha = 0.32;
+    ctx.fillStyle = "#fff1d2";
     ctx.beginPath();
-    ctx.ellipse(cup.x - ox * 0.45, cup.y - oy * 0.45 - inner * 0.12, inner * 0.22, inner * 0.09, -0.5, 0, Math.PI * 2);
+    ctx.ellipse(cup.x - hx * slide, cup.y - hy * slide - inner * 0.06, inner * 0.2, inner * 0.09, -0.45, 0, Math.PI * 2);
     ctx.fill();
+    ctx.globalAlpha = 1;
+    for (const r of ripples) {
+      const u = r.t / 0.6;
+      ctx.beginPath();
+      ctx.arc(cup.x, cup.y, inner * (0.18 + u * 0.78), 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255, 220, 176, ${0.16 * r.amp * (1 - u)})`;
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+    }
+    const thin = clamp(slope / (cfg().tilt * Math.PI / 180), 0, 1);
+    const expose = inner * 0.32 * thin;
+    if (expose > 0.6) {
+      ctx.beginPath();
+      ctx.arc(cup.x, cup.y, inner + 1, 0, Math.PI * 2);
+      ctx.moveTo(cup.x + hx * expose + inner, cup.y + hy * expose);
+      ctx.arc(cup.x + hx * expose, cup.y + hy * expose, inner, 0, Math.PI * 2);
+      ctx.fillStyle = "#f4eadc";
+      ctx.fill("evenodd");
+      ctx.beginPath();
+      ctx.arc(cup.x + hx * expose * 0.5, cup.y + hy * expose * 0.5, inner - expose * 0.45, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(255, 226, 180, 0.7)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.arc(cup.x, cup.y, inner - 1.4, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(255, 214, 160, 0.4)";
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
     ctx.restore();
 
     ctx.beginPath();
@@ -479,15 +577,15 @@
     ctx.stroke();
     ctx.restore();
 
-    const bx = cup.x + ox * 0.85;
-    const by = cup.y - cup.r * 1.22 + oy * 0.45;
+    const bx = cup.x + hx * slope * cup.r * 0.35;
+    const by = cup.y - cup.r * 1.22 + hy * slope * cup.r * 0.35;
     ctx.beginPath();
     ctx.arc(bx, by, 9, 0, Math.PI * 2);
     ctx.strokeStyle = "rgba(90, 60, 40, 0.35)";
     ctx.lineWidth = 1.25;
     ctx.stroke();
     ctx.beginPath();
-    ctx.arc(bx + ox * 0.15, by + oy * 0.15, 2.2, 0, Math.PI * 2);
+    ctx.arc(bx + hx * slope * 4, by + hy * slope * 4, 2.2, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(90, 60, 40, 0.55)";
     ctx.fill();
 
@@ -517,7 +615,27 @@
     last = t;
     if (playing) tick(dt);
     draw();
-    window.__brew = { steps, spill, redacted, playing, mode, diff, stains: stains.length, surf: { x: surf.x, y: surf.y } };
+    window.__brew = {
+      steps, spill, redacted, playing, mode, diff,
+      stains: stains.length,
+      field: sensor.field,
+      vert: sensor.vert,
+      threshold: sensor.threshold,
+      slope: Math.hypot(surf.x, surf.y),
+      cup: { x: cup.x, y: cup.y, r: cup.r },
+      surf: { x: surf.x, y: surf.y },
+    };
+    if (debugOn) {
+      $("debug").hidden = false;
+      $("debug").textContent = [
+        `field ${sensor.field}`,
+        `vert ${(sensor.vert / G).toFixed(3)} g`,
+        `band ${(bp / G).toFixed(3)} g`,
+        `threshold ${(sensor.threshold / G).toFixed(3)} g`,
+        `steps ${steps}`,
+        `rate ${sensor.hz} Hz`,
+      ].join("\n");
+    }
     requestAnimationFrame(loop);
   }
 
@@ -622,7 +740,6 @@
       if (event.code === "Space" && playing && !calibrating) {
         event.preventDefault();
         countStep(performance.now());
-        inject(1.1, -Math.PI / 2);
       }
     });
     canvas.addEventListener("pointerdown", (event) => {
