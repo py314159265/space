@@ -533,12 +533,12 @@
       const mean = alts.reduce((s, v) => s + v, 0) / (alts.length || 1);
       const horizon = clamp((mean * RAD + 4) / 22, 0, 1);
       const zoom = clamp((96 - fov) / 50, 0.4, 1);
-      let alpha = 0.24 * zoom * horizon;
-      if (night) alpha *= 0.7;
+      let alpha = 0.20 * zoom * horizon;
+      if (night) alpha *= 0.9;
       if (alpha < 0.02) continue;
       const [A, B, C, D, E, F] = aff;
       const scale = Math.hypot(A, D);
-      if (scale > 6 || scale < 0.015) continue;
+      if (scale > 12 || scale < 0.015) continue;
       ctx.save();
       ctx.beginPath();
       const xs = tri.map((p) => p.dx);
