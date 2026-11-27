@@ -4,6 +4,7 @@
   const RAD = 180 / Math.PI;
   const STORE_LOC = "nightglass-loc";
   const STORE_CAL = "nightglass-cal";
+  const STORE_ART = "nightglass-art";
   const DEFAULT_LOC = { lat: 34.08, lon: -118.07 };
   const PLANETS = ["Mercury", "Venus", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune"];
   const CON_NAME = {
@@ -27,6 +28,7 @@
   const canvas = $("sky");
   const ctx = canvas.getContext("2d", { alpha: false });
   const params = new URLSearchParams(location.search);
+  const showAnchors = params.get("anchors") === "1";
 
   let stars = [];
   let starByHip = new Map();
@@ -39,6 +41,9 @@
   let showLines = true;
   let showLabels = true;
   let showGrid = false;
+  let showArt = true;
+  let artIndex = {};
+  const artImages = new Map();
   let calibrating = false;
   let lat = DEFAULT_LOC.lat;
   let lon = DEFAULT_LOC.lon;
@@ -76,6 +81,7 @@
       }
       const cal = JSON.parse(localStorage.getItem(STORE_CAL) || "null");
       if (cal && Number.isFinite(cal.offset)) headingOffset = cal.offset;
+      if (localStorage.getItem(STORE_ART) === "0") showArt = false;
     } catch (err) { /* keep defaults */ }
     $("lat").value = lat.toFixed(2);
     $("lon").value = lon.toFixed(2);
@@ -432,6 +438,139 @@
     ctx.restore();
   }
 
+  function loadArt(id) {
+    const meta = artIndex[id];
+    if (!meta) return null;
+    let rec = artImages.get(id);
+    if (!rec) {
+      rec = { img: new Image(), ready: false, red: null };
+      rec.img.onload = () => {
+        rec.ready = true;
+        const board = document.createElement("canvas");
+        board.width = rec.img.width;
+        board.height = rec.img.height;
+        const g = board.getContext("2d");
+        g.drawImage(rec.img, 0, 0);
+        g.globalCompositeOperation = "source-in";
+        g.fillStyle = "#ff3b3b";
+        g.fillRect(0, 0, board.width, board.height);
+        rec.red = board;
+      };
+      rec.img.src = `data/art/${meta.file}`;
+      artImages.set(id, rec);
+    }
+    return rec.ready ? rec : null;
+  }
+  // Scale, rotation, and translation only. A full affine shears an engraved
+  // plate onto the stars and throws the body off the asterism it belongs to.
+  function solveSimilarity(src, dst) {
+    if (src.length < 3) return null;
+    let mx = 0, my = 0, mu = 0, mv = 0;
+    for (let i = 0; i < src.length; i++) {
+      mx += src[i].x; my += src[i].y; mu += dst[i].x; mv += dst[i].y;
+    }
+    const n = src.length;
+    mx /= n; my /= n; mu /= n; mv /= n;
+    let varxy = 0, aNum = 0, bNum = 0;
+    for (let i = 0; i < src.length; i++) {
+      const x = src[i].x - mx, y = src[i].y - my;
+      const u = dst[i].x - mu, v = dst[i].y - mv;
+      varxy += x * x + y * y;
+      aNum += x * u + y * v;
+      bNum += x * v - y * u;
+    }
+    if (varxy < 1e-6) return null;
+    const a = aNum / varxy;
+    const b = bNum / varxy;
+    return [a, b, mu - (a * mx - b * my), mv - (b * mx + a * my)];
+  }
+  function pickAnchors(meta, hipPos) {
+    const pts = [];
+    for (const a of meta.anchors) {
+      const p = hipPos.get(a.hip);
+      if (!p) continue;
+      pts.push({ sx: a.x, sy: a.y, dx: p.x, dy: p.y });
+    }
+    if (pts.length < 3) return null;
+    let best = 0;
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 1; j < pts.length; j++) {
+        for (let k = j + 1; k < pts.length; k++) {
+          const area = Math.abs((pts[j].sx - pts[i].sx) * (pts[k].sy - pts[i].sy) - (pts[k].sx - pts[i].sx) * (pts[j].sy - pts[i].sy));
+          const screen = Math.abs((pts[j].dx - pts[i].dx) * (pts[k].dy - pts[i].dy) - (pts[k].dx - pts[i].dx) * (pts[j].dy - pts[i].dy));
+          if (screen > 24 && area > best) best = area;
+        }
+      }
+    }
+    return best > 300 ? pts : null;
+  }
+  function drawConstellationArt(hipPos, hipAlt) {
+    for (const id of Object.keys(artIndex)) {
+      const meta = artIndex[id];
+      const visible = meta.anchors.some((a) => hipPos.has(a.hip));
+      if (!visible) continue;
+      const rec = loadArt(id);
+      if (!rec) continue;
+      const img = night && rec.red ? rec.red : rec.img;
+      const tri = pickAnchors(meta, hipPos);
+      if (!tri) continue;
+      const aff = solveSimilarity(
+        tri.map((p) => ({ x: p.sx, y: p.sy })),
+        tri.map((p) => ({ x: p.dx, y: p.dy })),
+      );
+      if (!aff) continue;
+      const alts = meta.anchors.map((a) => hipAlt.get(a.hip)).filter((v) => v != null);
+      const mean = alts.reduce((s, v) => s + v, 0) / (alts.length || 1);
+      const horizon = clamp((mean * RAD + 4) / 22, 0, 1);
+      const zoom = clamp((96 - fov) / 50, 0.4, 1);
+      let alpha = 0.20 * zoom * horizon;
+      if (night) alpha *= 0.9;
+      if (alpha < 0.02) continue;
+      const [a, b, tx, ty] = aff;
+      const scale = Math.hypot(a, b);
+      if (scale > 12 || scale < 0.015) continue;
+      ctx.save();
+      ctx.beginPath();
+      const xs = tri.map((p) => p.dx);
+      const ys = tri.map((p) => p.dy);
+      const minX = Math.min(...xs), maxX = Math.max(...xs);
+      const minY = Math.min(...ys), maxY = Math.max(...ys);
+      const pad = Math.max(maxX - minX, maxY - minY) * 1.25;
+      ctx.rect(minX - pad, minY - pad, maxX - minX + pad * 2, maxY - minY + pad * 2);
+      ctx.clip();
+      ctx.setTransform(a * dpr, b * dpr, -b * dpr, a * dpr, tx * dpr, ty * dpr);
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(img, 0, 0);
+      ctx.restore();
+      if (showAnchors) {
+        ctx.save();
+        ctx.globalAlpha = 1;
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = "#3dffb0";
+        ctx.fillStyle = "#3dffb0";
+        ctx.font = "600 11px Source Sans 3, sans-serif";
+        ctx.textAlign = "left";
+        for (const p of tri) {
+          const x = a * p.sx - b * p.sy + tx;
+          const y = b * p.sx + a * p.sy + ty;
+          ctx.beginPath();
+          ctx.arc(x, y, 5, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(x - 8, y); ctx.lineTo(x + 8, y);
+          ctx.moveTo(x, y - 8); ctx.lineTo(x, y + 8);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(x, y); ctx.lineTo(p.dx, p.dy);
+          ctx.stroke();
+          const err = Math.hypot(x - p.dx, y - p.dy);
+          ctx.fillText(String(Math.round(err)), x + 7, y - 7);
+        }
+        ctx.restore();
+      }
+    }
+  }
+
   function frame() {
     stepSlew();
     const pose = cameraPose();
@@ -449,12 +588,22 @@
     if (showGrid) drawGrid(pose);
 
     const hipPos = new Map();
+    const hipAlt = new Map();
+    const hipHor = new Map();
     for (const s of stars) {
       const hor = eqToHor(s.ra, s.dec, when);
-      if (hor.alt < -2 * DEG) continue;
+      if (hor.alt < -8 * DEG) continue;
       const p = project(hor.az, hor.alt, pose);
       if (!p) continue;
       hipPos.set(s.hip, p);
+      hipAlt.set(s.hip, hor.alt);
+      hipHor.set(s.hip, hor);
+    }
+    if (showArt) drawConstellationArt(hipPos, hipAlt);
+
+    for (const s of stars) {
+      const p = hipPos.get(s.hip);
+      if (!p || hipAlt.get(s.hip) < -2 * DEG) continue;
       const radius = Math.max(0.6, (4.6 - s.mag) * 0.55);
       ctx.beginPath();
       ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
@@ -462,7 +611,7 @@
       ctx.globalAlpha = s.mag > 4.2 ? 0.75 : 1;
       ctx.fill();
       ctx.globalAlpha = 1;
-      if (s.mag <= 2.1) picks.push({ x: p.x, y: p.y, kind: "star", star: s, hor });
+      if (s.mag <= 2.1) picks.push({ x: p.x, y: p.y, kind: "star", star: s, hor: hipHor.get(s.hip) });
     }
 
     for (const fig of figures) {
@@ -1047,6 +1196,8 @@
       findQ.value = "";
     });
     $("guide-cancel").addEventListener("click", clearGuide);
+    const artBtn = document.querySelector('[data-key="art"]');
+    if (artBtn) artBtn.setAttribute("aria-pressed", showArt ? "true" : "false");
     document.querySelectorAll(".toggles button").forEach((btn) => {
       btn.addEventListener("click", () => {
         const key = btn.dataset.key;
@@ -1055,6 +1206,10 @@
         if (key === "lines") showLines = on;
         if (key === "labels") showLabels = on;
         if (key === "grid") showGrid = on;
+        if (key === "art") {
+          showArt = on;
+          localStorage.setItem(STORE_ART, on ? "1" : "0");
+        }
         if (key === "night") { night = on; document.body.classList.toggle("night", on); }
         if (key === "cal") {
           calibrating = on;
@@ -1109,12 +1264,14 @@
     loadStore();
     resize();
     bind();
-    const [starFile, figFile, conFile] = await Promise.all([
+    const [starFile, figFile, conFile, artFile] = await Promise.all([
       fetch("data/stars.json").then((r) => r.json()),
       fetch("data/figures.json").then((r) => r.json()),
       fetch("data/constellations.json").then((r) => r.json()),
+      fetch("data/art/index.json").then((r) => r.json()),
     ]);
     constMeta = conFile;
+    artIndex = artFile;
     cons = starFile.con;
     names = starFile.names || {};
     stars = starFile.s.map((row) => ({ ra: row[0], dec: row[1], mag: row[2], bv: row[3], hip: row[4], con: row[5], ly: row[6] || 0 }));
