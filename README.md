@@ -6,10 +6,13 @@ Static site for [space.example.com](https://space.example.com), published with G
 
 The 3D atlas is at [`/probes/`](probes/). Planets are drawn from orbital elements. Spacecraft tracks come from JPL Horizons and are stored in `data/probes.json`. three.js r170 is vendored in `probes/vendor/`.
 
+The phone planetarium is at [`/sky/`](sky/).
+
 | Path | Purpose |
 | --- | --- |
 | `index.html` | Landing page |
 | `probes/` | Atlas |
+| `sky/` | Phone planetarium |
 | `data/probes.json` | Bundled Horizons tracks |
 | `scripts/fetch_probes.py` | Refresh those tracks |
 | `.github/workflows/update-probes.yml` | Daily update, committed back to this repo |
