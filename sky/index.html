@@ -35,6 +35,7 @@
   <div class="stage" id="stage" hidden>
     <canvas id="sky" aria-label="The sky. Drag to look around in manual mode. Tap an object for details."></canvas>
     <p class="hud" id="hud">● — · Alt —</p>
+    <pre id="orient-debug" hidden></pre>
     <form class="find" id="find" role="search">
       <input id="find-q" type="search" placeholder="Find a star or constellation" aria-label="Find a star or constellation" autocomplete="off">
       <ul id="find-list" hidden></ul>
@@ -66,6 +67,7 @@
     </aside>
   </div>
   <script src="vendor/astronomy.browser.min.js"></script>
+  <script src="orient.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

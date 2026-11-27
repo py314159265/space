@@ -126,13 +126,6 @@
     if (screen.orientation && typeof screen.orientation.angle === "number") return screen.orientation.angle;
     return typeof window.orientation === "number" ? window.orientation : 0;
   }
-  function mul(R, v) {
-    return [
-      R[0] * v[0] + R[1] * v[1] + R[2] * v[2],
-      R[3] * v[0] + R[4] * v[1] + R[5] * v[2],
-      R[6] * v[0] + R[7] * v[1] + R[8] * v[2],
-    ];
-  }
   function cross(a, b) {
     return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
   }
@@ -142,52 +135,24 @@
     const l = vlen(a) || 1;
     return [a[0] / l, a[1] / l, a[2] / l];
   }
-  function deviceMatrix(alphaDeg, betaDeg, gammaDeg) {
-    const z = alphaDeg * DEG, x = betaDeg * DEG, y = gammaDeg * DEG;
-    const cX = Math.cos(x), sX = Math.sin(x);
-    const cY = Math.cos(y), sY = Math.sin(y);
-    const cZ = Math.cos(z), sZ = Math.sin(z);
-    return [
-      cZ * cY - sZ * sX * sY, -cX * sZ, cY * sZ * sX + cZ * sY,
-      cY * sZ + cZ * sX * sY, cZ * cX, sZ * sY - cZ * sX * cY,
-      -cX * sY, sX, cX * cY,
-    ];
-  }
-  function screenUpDevice(angle) {
-    const a = ((angle % 360) + 360) % 360;
-    if (a === 90) return [-1, 0, 0];
-    if (a === 180) return [0, -1, 0];
-    if (a === 270) return [1, 0, 0];
-    return [0, 1, 0];
-  }
-  function viewFromOrientation(alpha, beta, gamma, angle) {
-    const R = deviceMatrix(alpha, beta, gamma);
-    const forward = vnorm(mul(R, [0, 0, -1]));
-    const upEarth = vnorm(mul(R, screenUpDevice(angle)));
-    const az = Math.atan2(forward[0], forward[1]);
-    const alt = Math.asin(clamp(forward[2], -1, 1));
-    const worldUp = [0, 0, 1];
-    let right = cross(forward, worldUp);
-    if (vlen(right) < 0.15) right = [Math.cos(az), -Math.sin(az), 0];
-    right = vnorm(right);
-    const camUp = vnorm(cross(right, forward));
-    const su = vnorm([
-      upEarth[0] - forward[0] * dot(upEarth, forward),
-      upEarth[1] - forward[1] * dot(upEarth, forward),
-      upEarth[2] - forward[2] * dot(upEarth, forward),
-    ]);
-    const roll = Math.atan2(dot(su, right), dot(su, camUp));
-    return { az: normAng(az), alt, roll, forward, up: upEarth };
-  }
-
-  function onOrient(event) {
+  const headingTracker = Orient.createTracker();
+  const debugOn = new URLSearchParams(location.search).get("debug") === "1";
+  let orientDebug = null;
+  let sawAbsolute = false;
+  function onOrient(event, absolute) {
     if (!live) return;
-    let alpha = event.alpha;
-    if (typeof event.webkitCompassHeading === "number" && !Number.isNaN(event.webkitCompassHeading)) {
-      alpha = 360 - event.webkitCompassHeading;
-    }
-    if (alpha == null || event.beta == null || event.gamma == null) return;
-    sensor = viewFromOrientation(alpha, event.beta, event.gamma, screenAngle());
+    const tracked = headingTracker.update({
+      alpha: event.alpha,
+      beta: event.beta,
+      gamma: event.gamma,
+      webkitCompassHeading: event.webkitCompassHeading,
+      webkitCompassAccuracy: event.webkitCompassAccuracy,
+      absolute: absolute || event.absolute === true,
+      screenAngle: screenAngle(),
+    });
+    if (!tracked) return;
+    sensor = tracked;
+    orientDebug = tracked;
   }
 
   async function startLive() {
@@ -556,6 +521,17 @@
 
     const azDeg = pose.az * RAD;
     $("hud").textContent = `● ${compassName(pose.az)} ${Math.round(azDeg)}° · Alt ${Math.round(pose.alt * RAD)}°`;
+    if (debugOn) {
+      const d = orientDebug;
+      $("orient-debug").hidden = false;
+      $("orient-debug").textContent = d ? [
+        `mode ${d.mode}`,
+        `alpha ${Number(d.alpha).toFixed(1)}  beta ${Number(d.beta).toFixed(1)}  gamma ${Number(d.gamma).toFixed(1)}`,
+        `webkit ${d.webkit == null ? "—" : Number(d.webkit).toFixed(1)}`,
+        `offset ${d.offset.toFixed(1)}`,
+        `az ${Math.round(azDeg)}°  alt ${Math.round(pose.alt * RAD)}°`,
+      ].join("\n") : "waiting for orientation";
+    }
     $("when").textContent = when.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
     window.__sky = {
@@ -912,9 +888,14 @@
       });
     });
     window.addEventListener("resize", resize);
-    window.addEventListener("deviceorientationabsolute", onOrient);
+    window.addEventListener("deviceorientationabsolute", (event) => {
+      sawAbsolute = true;
+      onOrient(event, true);
+    });
     window.addEventListener("deviceorientation", (event) => {
-      if (typeof event.webkitCompassHeading === "number" || !sensor) onOrient(event);
+      const webkit = typeof event.webkitCompassHeading === "number";
+      if (sawAbsolute && !webkit) return;
+      onOrient(event, event.absolute === true);
     });
   }
 
