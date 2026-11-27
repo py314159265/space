@@ -54,6 +54,8 @@
   let moonPhase = 0;
   let picks = [];
   let selected = null;
+  let guide = null;
+  let guideSlew = null;
   let baseNow = params.get("time") ? new Date(params.get("time")) : null;
   if (baseNow && Number.isNaN(baseNow.getTime())) baseNow = null;
 
@@ -164,10 +166,12 @@
     } catch (err) { /* desktop browsers have no permission gate */ }
     await askPlace();
     live = true;
+    guideSlew = null;
     openStage();
   }
   function startManual() {
     live = false;
+    clearGuide();
     askPlace();
     openStage();
   }
@@ -289,6 +293,39 @@
     const f = (h / 2) / Math.tan((fov * DEG) / 2);
     return { x: w / 2 + (x / z) * f, y: h / 2 - (y / z) * f, z };
   }
+  function aimOffset(az, alt, pose) {
+    const east = Math.cos(alt) * Math.sin(az);
+    const north = Math.cos(alt) * Math.cos(az);
+    const up = Math.sin(alt);
+    const faz = pose.az, falt = pose.alt;
+    const fe = Math.cos(falt) * Math.sin(faz);
+    const fn = Math.cos(falt) * Math.cos(faz);
+    const fu = Math.sin(falt);
+    let right = cross([fe, fn, fu], [0, 0, 1]);
+    if (vlen(right) < 0.12) right = [Math.cos(faz), -Math.sin(faz), 0];
+    right = vnorm(right);
+    const camUp = vnorm(cross(right, [fe, fn, fu]));
+    const v = [east, north, up];
+    let x = dot(v, right);
+    let y = dot(v, camUp);
+    const z = dot(v, [fe, fn, fu]);
+    if (pose.roll) {
+      const c = Math.cos(pose.roll), s = Math.sin(pose.roll);
+      const xr = x * c - y * s;
+      const yr = x * s + y * c;
+      x = xr; y = yr;
+    }
+    const f = (h / 2) / Math.tan((fov * DEG) / 2);
+    return {
+      x, y, z,
+      px: z > 0.05 ? w / 2 + (x / z) * f : null,
+      py: z > 0.05 ? h / 2 - (y / z) * f : null,
+    };
+  }
+  function angSep(az1, alt1, az2, alt2) {
+    const cos = Math.sin(alt1) * Math.sin(alt2) + Math.cos(alt1) * Math.cos(alt2) * Math.cos(az1 - az2);
+    return Math.acos(clamp(cos, -1, 1));
+  }
 
   function starColor(bv) {
     if (night) return "#ff2a2a";
@@ -396,6 +433,7 @@
   }
 
   function frame() {
+    stepSlew();
     const pose = cameraPose();
     const when = nowDate();
     picks = [];
@@ -518,6 +556,7 @@
     ctx.moveTo(w / 2, h / 2 - 22); ctx.lineTo(w / 2, h / 2 - 8);
     ctx.moveTo(w / 2, h / 2 + 8); ctx.lineTo(w / 2, h / 2 + 22);
     ctx.stroke();
+    drawGuide(pose);
 
     const azDeg = pose.az * RAD;
     $("hud").textContent = `● ${compassName(pose.az)} ${Math.round(azDeg)}° · Alt ${Math.round(pose.alt * RAD)}°`;
@@ -559,6 +598,137 @@
       }).map((fig) => fig.name),
     };
     requestAnimationFrame(frame);
+  }
+
+  function clearGuide() {
+    guide = null;
+    guideSlew = null;
+    const node = $("guide");
+    if (node) node.hidden = true;
+  }
+  function stepSlew() {
+    if (!guideSlew) return;
+    const u = Math.min(1, (performance.now() - guideSlew.t0) / 900);
+    const e = u < 0.5 ? 2 * u * u : 1 - ((-2 * u + 2) ** 2) / 2;
+    let d = guideSlew.az1 - guideSlew.az0;
+    if (d > Math.PI) d -= Math.PI * 2;
+    if (d < -Math.PI) d += Math.PI * 2;
+    manualAz = normAng(guideSlew.az0 + d * e);
+    manualAlt = clamp(guideSlew.alt0 + (guideSlew.alt1 - guideSlew.alt0) * e, -5 * DEG, 89 * DEG);
+    if (u >= 1) {
+      const open = guideSlew.open;
+      guideSlew = null;
+      open();
+    }
+  }
+  function guideBounds() {
+    const stage = $("stage").getBoundingClientRect();
+    const find = $("find").getBoundingClientRect();
+    const chip = $("guide");
+    const chipBox = chip && !chip.hidden ? chip.getBoundingClientRect() : null;
+    const bar = document.querySelector(".bar").getBoundingClientRect();
+    const below = chipBox ? chipBox.bottom : find.bottom;
+    return {
+      top: Math.max(88, below - stage.top + 56),
+      bottom: Math.min(h - 48, bar.top - stage.top - 28),
+      left: 36,
+      right: w - 36,
+    };
+  }
+  function edgePoint(dx, dy, bounds) {
+    const cx = w / 2, cy = h / 2;
+    const hits = [];
+    if (dx > 0.001) hits.push((bounds.right - cx) / dx);
+    if (dx < -0.001) hits.push((bounds.left - cx) / dx);
+    if (dy > 0.001) hits.push((bounds.bottom - cy) / dy);
+    if (dy < -0.001) hits.push((bounds.top - cy) / dy);
+    const t = Math.min(...hits.filter((v) => v > 0));
+    return { x: cx + dx * t, y: cy + dy * t };
+  }
+  function drawEdgeArrow(x, y, ang) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(ang);
+    ctx.beginPath();
+    ctx.moveTo(40, 0);
+    ctx.lineTo(-26, 24);
+    ctx.lineTo(-12, 0);
+    ctx.lineTo(-26, -24);
+    ctx.closePath();
+    ctx.fillStyle = gold();
+    ctx.globalAlpha = 0.94;
+    ctx.fill();
+    ctx.restore();
+  }
+  function drawPulseRing(x, y) {
+    const pulse = 1 + 0.14 * Math.sin(performance.now() / 150);
+    ctx.save();
+    ctx.strokeStyle = gold();
+    ctx.lineWidth = 3;
+    ctx.globalAlpha = 0.55 + 0.35 * (0.5 + 0.5 * Math.sin(performance.now() / 150));
+    ctx.beginPath();
+    ctx.arc(x, y, 28 * pulse, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+  function markFound() {
+    if (guide.done) return;
+    guide.done = true;
+    guide.foundAt = performance.now();
+    if (typeof navigator.vibrate === "function") navigator.vibrate(20);
+    $("guide-label").textContent = "Found";
+    guide.open();
+  }
+  function drawGuide(pose) {
+    if (!guide) return;
+    if (guide.done) {
+      if (performance.now() - guide.foundAt > 1400) clearGuide();
+      return;
+    }
+    const hor = eqToHor(guide.ra, guide.dec, nowDate());
+    if (angSep(pose.az, pose.alt, hor.az, hor.alt) < 3 * DEG) {
+      markFound();
+      return;
+    }
+    const off = aimOffset(hor.az, hor.alt, pose);
+    const horiz = Math.atan2(off.x, off.z) * RAD;
+    const vert = Math.atan2(off.y, Math.hypot(off.x, off.z)) * RAD;
+    const label = $("guide-label");
+    if (hor.alt < 0) label.textContent = `${guide.name} → below horizon`;
+    else {
+      const parts = [];
+      if (Math.abs(horiz) >= 1) parts.push(`${Math.round(Math.abs(horiz))}° ${horiz > 0 ? "right" : "left"}`);
+      if (Math.abs(vert) >= 1) parts.push(`${Math.round(Math.abs(vert))}° ${vert > 0 ? "up" : "down"}`);
+      label.textContent = `${guide.name} → ${parts.join(", ") || "ahead"}`;
+    }
+    const inside = off.px != null && off.px >= 0 && off.px <= w && off.py >= 0 && off.py <= h;
+    if (inside) drawPulseRing(off.px, off.py);
+    else {
+      const dx = Math.abs(off.x) + Math.abs(off.y) < 1e-4 ? 0 : off.x;
+      const dy = Math.abs(off.x) + Math.abs(off.y) < 1e-4 ? -1 : -off.y;
+      const at = edgePoint(dx, dy, guideBounds());
+      drawEdgeArrow(at.x, at.y, Math.atan2(dy, dx));
+    }
+  }
+  function trackTarget(name, ra, dec, open) {
+    if (live) {
+      guideSlew = null;
+      guide = { name, ra, dec, open, done: false };
+      $("guide").hidden = false;
+      $("guide-label").textContent = name;
+      return;
+    }
+    guide = null;
+    $("guide").hidden = true;
+    const hor = eqToHor(ra, dec, nowDate());
+    guideSlew = {
+      az0: manualAz,
+      alt0: manualAlt,
+      az1: hor.az,
+      alt1: clamp(hor.alt, -5 * DEG, 89 * DEG),
+      t0: performance.now(),
+      open,
+    };
   }
 
   function nearestPick(x, y, limit) {
@@ -861,17 +1031,22 @@
       const kind = btn.dataset.kind;
       if (kind === "fig") {
         const fig = figures.find((f) => f.id === btn.dataset.id);
-        if (fig) openSheet({ kind: "fig", fig });
+        const center = fig && figureCenter(fig.id);
+        if (fig && center) trackTarget(fig.name, center.ra, center.dec, () => openSheet({ kind: "fig", fig }));
+        else if (fig) openSheet({ kind: "fig", fig });
       } else if (kind === "star") {
         const star = starByHip.get(Number(btn.dataset.hip));
         if (star) {
-          const hor = eqToHor(star.ra, star.dec, nowDate());
-          openSheet({ kind: "star", star, hor });
+          const name = names[star.hip] || `HIP ${star.hip}`;
+          trackTarget(name, star.ra, star.dec, () => {
+            openSheet({ kind: "star", star, hor: eqToHor(star.ra, star.dec, nowDate()) });
+          });
         }
       }
       findList.hidden = true;
       findQ.value = "";
     });
+    $("guide-cancel").addEventListener("click", clearGuide);
     document.querySelectorAll(".toggles button").forEach((btn) => {
       btn.addEventListener("click", () => {
         const key = btn.dataset.key;
