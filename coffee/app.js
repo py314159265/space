@@ -46,7 +46,7 @@
   let calibrating = false;
   let calLeft = 0;
   let steps = 0;
-  let spill = 0;
+  let over = false;
   let left = 10;
   let level = { x: 0, y: 0, z: 9.8 };
   let grav = { x: 0, y: 0, z: 9.8 };
@@ -63,16 +63,12 @@
   const tiltLp = { x: 0, y: 0, z: G };
   const horiz = { x: 0, y: 0 };
   const tiltTarget = { x: 0, y: 0 };
-  let linPrev = 0;
-  let hp = 0;
-  let bp = 0;
-  let inPeak = false;
-  let peakVal = 0;
-  let peakStart = 0;
   let lastMotionT = 0;
-  const bandHist = [];
   const motionTimes = [];
-  const sensor = { field: "none", vert: 0, threshold: 0.06 * G, hz: 0 };
+  const sensor = { field: "none", channel: "vertical", vert: 0, threshold: 0.02 * G, hz: 0 };
+  let detector = StepDetect.createDetector();
+  let sensorSteps = 0;
+  let lastSense = null;
   const debugOn = new URLSearchParams(location.search).get("debug") === "1";
   let w = 1, h = 1, dpr = 1;
   let paper = { x: 0, y: 0, w: 0, h: 0, lineH: 0, top: 0 };
@@ -81,7 +77,6 @@
   let startedAt = 0;
   let redacted = false;
   let wakeLock = null;
-  let lastStain = 0;
 
   function cfg() { return CONFIG[diff]; }
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
@@ -130,65 +125,65 @@
     if (ripples.length > 3) ripples.shift();
   }
 
-  function paintSpill() {
-    $("meter").style.width = spill + "%";
-    $("spill-pct").textContent = Math.round(spill) + "%";
+  function angleBetween(a, b) {
+    const am = Math.hypot(a.x, a.y, a.z) || 1;
+    const bm = Math.hypot(b.x, b.y, b.z) || 1;
+    const dot = (a.x * b.x + a.y * b.y + a.z * b.z) / (am * bm);
+    return Math.acos(clamp(dot, -1, 1));
   }
 
-  function spillAt(ang, amount) {
-    spill = clamp(spill + amount * cfg().spill, 0, 100);
-    paintSpill();
-    const now = performance.now();
-    if (now - lastStain > 420) {
-      lastStain = now;
-      const lineY = paper.top + PASSWORD_LINE * paper.lineH + paper.lineH * 0.4;
-      const saucerR = cup.r * 1.36;
-      const n = stains.length;
-      const sx = cup.x + Math.cos(ang) * (saucerR + 20 + n * 8);
-      const sy = lineY + (n === 0 ? -paper.lineH : paper.lineH * 1.6);
-      const seed = (Math.random() * 1e9) | 0;
-      const rng = rand(seed || 1);
-      const lobes = Array.from({ length: 9 }, () => 0.82 + rng() * 0.28);
-      const tears = Array.from({ length: 8 }, () => ({
-        ang: ang + (rng() - 0.5) * 1.1,
-        dist: 26 + rng() * 22,
-        len: 9 + rng() * 8,
-        wid: 1.3 + rng() * 1.1,
-      }));
-      const specks = Array.from({ length: 9 }, () => ({
-        ang: ang + (rng() - 0.5) * 1.8,
-        dist: 30 + rng() * 28,
-        s: 0.45 + rng() * 0.7,
-      }));
-      const mottles = Array.from({ length: 5 }, () => ({
-        x: (rng() - 0.5) * 18,
-        y: (rng() - 0.5) * 14,
-        rx: 6 + rng() * 10,
-        ry: 4 + rng() * 7,
-      }));
-      const radius = 38 + rng() * 14;
-      stains.push({ x: sx, y: sy, r: radius, lobes, tears, specks, mottles });
-      const top = lineY - 2;
-      const bot = lineY + paper.lineH;
-      if (sy + radius > top && sy - radius < bot && sx > paper.x && sx < paper.x + paper.w) redacted = true;
-      const rimX = cup.x + Math.cos(ang) * cup.r;
-      const rimY = cup.y + Math.sin(ang) * cup.r;
-      for (let i = 0; i < 4; i++) {
-        const a = ang + (Math.random() - 0.5) * 0.5;
-        drops.push({
-          x: rimX, y: rimY,
-          vx: Math.cos(a) * (40 + Math.random() * 70),
-          vy: Math.sin(a) * (30 + Math.random() * 50) + 20,
-          r: 1.4 + Math.random() * 1.6,
-          life: 0.35 + Math.random() * 0.25,
-        });
-      }
+  function spillNow(ang) {
+    if (over || !playing || calibrating) return;
+    over = true;
+    playing = false;
+    detector.disarm();
+    const lineY = paper.top + PASSWORD_LINE * paper.lineH + paper.lineH * 0.4;
+    const saucerR = cup.r * 1.36;
+    const sx = cup.x + Math.cos(ang) * (saucerR + 20);
+    const sy = lineY;
+    const seed = (Math.random() * 1e9) | 0;
+    const rng = rand(seed || 1);
+    const lobes = Array.from({ length: 9 }, () => 0.82 + rng() * 0.28);
+    const tears = Array.from({ length: 8 }, () => ({
+      ang: ang + (rng() - 0.5) * 1.1,
+      dist: 26 + rng() * 22,
+      len: 9 + rng() * 8,
+      wid: 1.3 + rng() * 1.1,
+    }));
+    const specks = Array.from({ length: 9 }, () => ({
+      ang: ang + (rng() - 0.5) * 1.8,
+      dist: 30 + rng() * 28,
+      s: 0.45 + rng() * 0.7,
+    }));
+    const mottles = Array.from({ length: 5 }, () => ({
+      x: (rng() - 0.5) * 18,
+      y: (rng() - 0.5) * 14,
+      rx: 6 + rng() * 10,
+      ry: 4 + rng() * 7,
+    }));
+    const radius = 38 + rng() * 14;
+    stains.push({ x: sx, y: sy, r: radius, lobes, tears, specks, mottles });
+    const top = lineY - 2;
+    const bot = lineY + paper.lineH;
+    if (sy + radius > top && sy - radius < bot && sx > paper.x && sx < paper.x + paper.w) redacted = true;
+    const rimX = cup.x + Math.cos(ang) * cup.r;
+    const rimY = cup.y + Math.sin(ang) * cup.r;
+    for (let i = 0; i < 6; i++) {
+      const a = ang + (Math.random() - 0.5) * 0.6;
+      drops.push({
+        x: rimX, y: rimY,
+        vx: Math.cos(a) * (50 + Math.random() * 90),
+        vy: Math.sin(a) * (40 + Math.random() * 70) + 30,
+        r: 1.6 + Math.random() * 1.8,
+        life: 0.45 + Math.random() * 0.3,
+      });
     }
-    if (spill >= 100) finish(true);
+    finish(true);
   }
 
-  function countStep(now) {
-    if (now - lastStep < 280) return;
+  function showStep(now) {
+    if (over || !playing || calibrating) return;
+    if (now - lastStep < 250) return;
     lastStep = now;
     steps += 1;
     const el = $("steps");
@@ -202,23 +197,6 @@
     const mag = Math.hypot(v.x, v.y, v.z);
     if (mag > 0.4 && mag < 3.2) return { x: v.x * G, y: v.y * G, z: v.z * G };
     return v;
-  }
-
-  function considerStep(now, threshold) {
-    if (!playing || calibrating) return;
-    if (!inPeak && bp > threshold) {
-      inPeak = true;
-      peakVal = bp;
-      peakStart = now;
-    } else if (inPeak) {
-      if (bp > peakVal) peakVal = bp;
-      if (bp < threshold * 0.55) {
-        const width = now - peakStart;
-        inPeak = false;
-        const gap = now - lastStep;
-        if (width > 70 && width < 700 && gap >= 280 && peakVal >= threshold) countStep(now);
-      }
-    }
   }
 
   function onMotion(event) {
@@ -241,7 +219,9 @@
     }
     if (!sample) return;
 
-    const aG = 1 - Math.exp(-dt * 2 * Math.PI * 0.4);
+    if (over) return;
+
+    const aG = 1 - Math.exp(-dt * 2 * Math.PI * 0.2);
     const aT = 1 - Math.exp(-dt * 2 * Math.PI * 4);
     gLp.x += (sample.x - gLp.x) * aG;
     gLp.y += (sample.y - gLp.y) * aG;
@@ -253,45 +233,42 @@
     gotMotion = true;
     if (!(useMouse && mouse.on)) useMouse = false;
 
-    const lin = sensor.field === "acceleration"
-      ? sample
-      : { x: sample.x - gLp.x, y: sample.y - gLp.y, z: sample.z - gLp.z };
+    const lin = {
+      x: sample.x - gLp.x,
+      y: sample.y - gLp.y,
+      z: sample.z - gLp.z,
+    };
     const gm = Math.hypot(gLp.x, gLp.y, gLp.z) || G;
-    const vert = sensor.field === "acceleration" && raw
-      ? (raw.z != null ? asMeters(raw).z : Math.hypot(lin.x, lin.y, lin.z))
-      : (lin.x * gLp.x + lin.y * gLp.y + lin.z * gLp.z) / gm;
+    const vert = (lin.x * gLp.x + lin.y * gLp.y + lin.z * gLp.z) / gm;
     const ux = gLp.x / gm;
     const uy = gLp.y / gm;
     const hx = lin.x - vert * ux;
     const hy = lin.y - vert * uy;
-    const hpA = (1 / (2 * Math.PI)) / (1 / (2 * Math.PI) + dt);
-    hp = hpA * (hp + vert - linPrev);
-    linPrev = vert;
-    bp += (hp - bp) * (1 - Math.exp(-dt * 2 * Math.PI * 3.2));
-    bandHist.push({ t: now, v: bp });
-    while (bandHist.length && now - bandHist[0].t > 2000) bandHist.shift();
-    let mean = 0;
-    for (const s of bandHist) mean += s.v;
-    mean /= bandHist.length || 1;
-    let variance = 0;
-    for (const s of bandHist) variance += (s.v - mean) * (s.v - mean);
-    const std = Math.sqrt(variance / (bandHist.length || 1));
-    const threshold = Math.max(0.055 * G, mean + 0.9 * std);
-    sensor.vert = vert;
-    sensor.threshold = threshold;
-    considerStep(now, threshold);
-
-    if (playing && !calibrating) {
-      const linMag = Math.hypot(lin.x, lin.y, lin.z);
-      if (linMag > cfg().jolt * G) {
-        const ang = Math.atan2(hy, hx || 0.0001);
-        nudge(ang, linMag / G);
-        if (linMag > cfg().jolt * G * 1.15) spillAt(ang, 8);
-      }
-      const driveA = 1 - Math.exp(-dt * 2 * Math.PI * 6);
-      horiz.x += (hx / G - horiz.x) * driveA;
-      horiz.y += (hy / G - horiz.y) * driveA;
+    const absTilt = Math.acos(clamp(Math.abs(sample.z) / (Math.hypot(sample.x, sample.y, sample.z) || 1), 0, 1));
+    const relTilt = angleBetween(tiltLp, level);
+    const limit = cfg().tilt * Math.PI / 180;
+    if (playing && !calibrating && (absTilt > 45 * Math.PI / 180 || relTilt > limit || Math.hypot(lin.x, lin.y, lin.z) > cfg().jolt * G)) {
+      detector.disarm();
+      spillNow(Math.atan2(sample.y, sample.x));
+      return;
     }
+    const counting = playing && !calibrating && !over;
+    const sensed = detector.push(sample, dt, now, counting);
+    lastSense = sensed;
+    sensor.channel = sensed.channel;
+    sensor.vert = sensed.vertical;
+    sensor.threshold = sensed.threshold;
+    if (counting && sensed.steps > sensorSteps) {
+      const add = sensed.steps - sensorSteps;
+      sensorSteps = sensed.steps;
+      for (let i = 0; i < add; i++) showStep(now);
+    } else {
+      sensorSteps = sensed.steps;
+    }
+    if (over) return;
+    const driveA = 1 - Math.exp(-dt * 2 * Math.PI * 6);
+    horiz.x += (hx / G - horiz.x) * driveA;
+    horiz.y += (hy / G - horiz.y) * driveA;
     const gz = Math.abs(tiltLp.z) + 0.4;
     tiltTarget.x = Math.atan2(tiltLp.x - level.x, gz);
     tiltTarget.y = Math.atan2(tiltLp.y - level.y, gz);
@@ -314,6 +291,13 @@
     const gz = Math.abs(grav.z) + 0.4;
     tiltTarget.x = Math.atan2(grav.x - level.x, gz);
     tiltTarget.y = Math.atan2(grav.y - level.y, gz);
+    if (over || !playing || calibrating) return;
+    const absTilt = Math.acos(clamp(Math.abs(grav.z) / (Math.hypot(grav.x, grav.y, grav.z) || 1), 0, 1));
+    const relTilt = angleBetween(grav, level);
+    if (absTilt > 45 * Math.PI / 180 || relTilt > cfg().tilt * Math.PI / 180) {
+      detector.disarm();
+      spillNow(Math.atan2(grav.y, grav.x));
+    }
   }
 
   function tick(dt) {
@@ -340,8 +324,9 @@
     }
     const amp = Math.hypot(surf.x, surf.y);
     const limit = cfg().tilt * Math.PI / 180;
-    if (playing && !calibrating && amp > limit) {
-      spillAt(Math.atan2(surf.y, surf.x), (amp - limit) * 40 * dt);
+    if (playing && !calibrating && !over && amp > limit + 0.02) {
+      detector.disarm();
+      spillNow(Math.atan2(surf.y, surf.x));
     }
     for (let i = drops.length - 1; i >= 0; i--) {
       const d = drops[i];
@@ -610,15 +595,79 @@
     ctx.closePath();
   }
 
+  function paintLevel() {
+    const limit = cfg().tilt * Math.PI / 180 || 0.01;
+    let ax = tiltTarget.x;
+    let ay = tiltTarget.y;
+    if (!(useMouse && mouse.on)) {
+      const gz = Math.abs(tiltLp.z) + 0.4;
+      ax = Math.atan2(tiltLp.x - level.x, gz);
+      ay = Math.atan2(tiltLp.y - level.y, gz);
+    }
+    const fx = clamp(ax / limit, -1.05, 1.05);
+    const fy = clamp(ay / limit, -1.05, 1.05);
+    const dot = $("bubble-dot");
+    dot.style.left = (50 + fx * 38) + "%";
+    dot.style.top = (50 + fy * 38) + "%";
+    $("bubble").classList.toggle("hot", Math.hypot(fx, fy) > 0.82);
+  }
+
+  function drawWave() {
+    const board = $("debug-wave");
+    if (!board || !lastSense) return;
+    const g = board.getContext("2d");
+    const bw = board.width;
+    const bh = board.height;
+    g.clearRect(0, 0, bw, bh);
+    g.fillStyle = "#fffaf3";
+    g.fillRect(0, 0, bw, bh);
+    const wave = lastSense.wave || [];
+    if (wave.length < 2) return;
+    const th = lastSense.threshold || 0.02 * G;
+    let peak = th;
+    for (const p of wave) peak = Math.max(peak, Math.abs(p.v));
+    const scale = Math.max(peak * 1.25, th * 2);
+    const t0 = wave[0].t;
+    const t1 = wave[wave.length - 1].t;
+    const xOf = (time) => 4 + ((time - t0) / (t1 - t0 || 1)) * (bw - 8);
+    const yOf = (v) => bh / 2 - (v / scale) * (bh * 0.42);
+    g.strokeStyle = "rgba(196, 122, 58, 0.85)";
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(4, yOf(th));
+    g.lineTo(bw - 4, yOf(th));
+    g.moveTo(4, yOf(-th));
+    g.lineTo(bw - 4, yOf(-th));
+    g.stroke();
+    g.strokeStyle = "#3a2418";
+    g.lineWidth = 1.4;
+    g.beginPath();
+    wave.forEach((p, i) => {
+      const x = xOf(p.t);
+      const y = yOf(p.v);
+      if (i === 0) g.moveTo(x, y);
+      else g.lineTo(x, y);
+    });
+    g.stroke();
+    g.fillStyle = "#c47a3a";
+    for (const mark of lastSense.marks || []) {
+      if (mark < t0 || mark > t1) continue;
+      const x = xOf(mark);
+      g.fillRect(x - 1, 3, 2, bh - 6);
+    }
+  }
+
   function loop(t) {
     const dt = Math.min(0.033, (t - last) / 1000 || 0.016);
     last = t;
     if (playing) tick(dt);
     draw();
+    paintLevel();
     window.__brew = {
-      steps, spill, redacted, playing, mode, diff,
+      steps, over, redacted, playing, mode, diff,
       stains: stains.length,
       field: sensor.field,
+      channel: sensor.channel,
       vert: sensor.vert,
       threshold: sensor.threshold,
       slope: Math.hypot(surf.x, surf.y),
@@ -627,23 +676,23 @@
     };
     if (debugOn) {
       $("debug").hidden = false;
-      $("debug").textContent = [
+      $("debug-text").textContent = [
         `field ${sensor.field}`,
+        `channel ${sensor.channel}`,
         `vert ${(sensor.vert / G).toFixed(3)} g`,
-        `band ${(bp / G).toFixed(3)} g`,
         `threshold ${(sensor.threshold / G).toFixed(3)} g`,
         `steps ${steps}`,
         `rate ${sensor.hz} Hz`,
       ].join("\n");
+      drawWave();
     }
     requestAnimationFrame(loop);
   }
 
   function finish(spilled) {
-    if (!playing) return;
+    if (!playing && !over) return;
     playing = false;
     const best = writeBest();
-    $("hud").hidden = true;
     $("hold").hidden = true;
     $("over").hidden = false;
     $("over-mode").textContent = `${mode === "sprint" ? "Sprint " + sprintSecs + "s" : "Endurance"} · ${diff[0].toUpperCase() + diff.slice(1)}`;
@@ -665,15 +714,17 @@
     try { wakeLock = await navigator.wakeLock?.request("screen"); } catch (err) { /* optional */ }
     try { await screen.orientation?.lock?.("portrait"); } catch (err) { /* optional */ }
     steps = 0;
-    spill = 0;
+    over = false;
+    sensorSteps = 0;
+    detector = StepDetect.createDetector();
+    lastSense = null;
     redacted = false;
     stains.length = 0;
     drops.length = 0;
     ripples.length = 0;
     surf.x = surf.y = surf.vx = surf.vy = 0;
-    lastStain = 0;
     $("steps").textContent = "0";
-    paintSpill();
+    paintLevel();
     $("badge").textContent = diff[0].toUpperCase() + diff.slice(1);
     $("clock").hidden = mode !== "sprint";
     $("timer").textContent = `0:${String(sprintSecs).padStart(2, "0")}`;
@@ -698,6 +749,7 @@
 
   function resetToGate() {
     playing = false;
+    over = false;
     $("over").hidden = true;
     $("play").hidden = true;
     $("hud").hidden = false;
@@ -739,7 +791,7 @@
     window.addEventListener("keydown", (event) => {
       if (event.code === "Space" && playing && !calibrating) {
         event.preventDefault();
-        countStep(performance.now());
+        showStep(performance.now());
       }
     });
     canvas.addEventListener("pointerdown", (event) => {

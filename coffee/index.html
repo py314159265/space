@@ -49,12 +49,9 @@
         <p class="steps" id="steps">0</p>
       </div>
       <p class="badge" id="badge">Medium</p>
-      <div class="meter-wrap">
-        <div class="meter-head">
-          <p class="label">Spill</p>
-          <span id="spill-pct">0%</span>
-        </div>
-        <div class="meter" aria-hidden="true"><span id="meter"></span></div>
+      <div class="level-wrap">
+        <p class="label">Level</p>
+        <div class="bubble" id="bubble" aria-hidden="true"><span id="bubble-dot"></span></div>
       </div>
       <div class="clock" id="clock" hidden>
         <p class="label">Sprint</p>
@@ -62,7 +59,10 @@
       </div>
     </div>
     <p class="hold" id="hold">Hold level · keep walking</p>
-    <pre id="debug" hidden></pre>
+    <div id="debug" hidden>
+      <p id="debug-text"></p>
+      <canvas id="debug-wave" width="340" height="72"></canvas>
+    </div>
     <p class="count" id="count" hidden>3</p>
     <section class="over" id="over" hidden>
       <div class="score">
@@ -78,6 +78,7 @@
       </div>
     </section>
   </div>
+  <script src="stepdetect.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -37,23 +37,34 @@ await page.waitForFunction(() => window.__brew && window.__brew.playing && docum
 const clock = await page.locator("#timer").innerText();
 if (!/^\d:\d\d$/.test(clock)) throw new Error(`timer ${clock}`);
 await page.screenshot({ path: `${OUT}/sprint.png` });
+await page.screenshot({ path: `${OUT}/hud-level.png` });
+if (await page.locator("#spill-pct").count()) throw new Error("spill percentage is still in the HUD");
 
-for (let i = 0; i < 80; i++) {
-  await page.evaluate(motion(4.2, 1.1, 8.2));
+const box = await page.locator("#c").boundingBox();
+await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
+await page.mouse.down();
+for (let i = 1; i <= 10; i++) {
+  const f = 0.78 * (i / 10);
+  await page.mouse.move(box.x + box.width * (0.5 + f * 0.45), box.y + box.height * 0.58);
+  await page.waitForTimeout(45);
+}
+await page.waitForTimeout(350);
+if (await page.evaluate(() => window.__brew.over)) throw new Error("near-limit tilt ended the round");
+await page.screenshot({ path: `${OUT}/hud-near.png` });
+await page.mouse.up();
+
+const stepsBefore = await page.evaluate(() => window.__brew.steps);
+for (let i = 0; i < 8; i++) {
+  const t = i * 0.05;
+  const bob = Math.sin(2 * Math.PI * 1.8 * t) * 0.2 * 9.8;
+  await page.evaluate(motion(9.8, 0.2, 0.3 + bob));
   await page.waitForTimeout(30);
-  const state = await page.evaluate(() => window.__brew);
-  if (state.stains >= 2 && state.spill < 100) break;
 }
-await page.screenshot({ path: `${OUT}/tilt.png` });
-
-for (let i = 0; i < 40; i++) {
-  await page.evaluate(motion(7.5, 2, 4, 0, 18, 0));
-  await page.waitForTimeout(40);
-}
-await page.waitForSelector("#over:not([hidden])", { timeout: 8000 });
+await page.waitForSelector("#over:not([hidden])", { timeout: 2000 });
+const stepsAfter = await page.evaluate(() => window.__brew.steps);
+if (stepsAfter !== stepsBefore) throw new Error(`steps moved after spill ${stepsBefore} -> ${stepsAfter}`);
 const note = await page.locator("#over-note").innerText();
-if (!/redacted/i.test(note)) throw new Error(`note: ${note}`);
-await page.screenshot({ path: `${OUT}/score.png` });
+await page.screenshot({ path: `${OUT}/hud-spilled.png` });
 
 const walk = await context.newPage();
 walk.on("pageerror", (err) => errors.push(String(err)));
@@ -73,7 +84,8 @@ for (let i = 0; i < 140; i++) {
   await walk.waitForTimeout(30);
 }
 const walked = await walk.evaluate(() => window.__brew.steps);
-if (walked < 3) throw new Error(`steps stayed at ${walked} with gravity-only motion`);
+const expectSteps = 1.8 * ((140 * 30) / 1000);
+if (walked < expectSteps * 0.7) throw new Error(`debug walk undercounted ${walked}`);
 await walk.screenshot({ path: `${OUT}/debug.png` });
 
 const look = await context.newPage();
@@ -82,13 +94,13 @@ await look.click("#start");
 await look.waitForFunction(() => document.getElementById("count").hidden);
 await look.waitForTimeout(250);
 await look.screenshot({ path: `${OUT}/level.png` });
-const box = await look.locator("#c").boundingBox();
-await look.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
+const lookBox = await look.locator("#c").boundingBox();
+await look.mouse.move(lookBox.x + lookBox.width * 0.5, lookBox.y + lookBox.height * 0.5);
 await look.mouse.down();
-await look.mouse.move(box.x + box.width * 0.9, box.y + box.height * 0.62, { steps: 24 });
+await look.mouse.move(lookBox.x + lookBox.width * 0.9, lookBox.y + lookBox.height * 0.62, { steps: 24 });
 await look.waitForTimeout(450);
 await look.screenshot({ path: `${OUT}/tilt.png` });
-await look.mouse.move(box.x + 12, box.y + box.height * 0.42, { steps: 3 });
+await look.mouse.move(lookBox.x + 12, lookBox.y + lookBox.height * 0.42, { steps: 3 });
 await look.keyboard.down("Space");
 await look.keyboard.up("Space");
 await look.waitForTimeout(120);
