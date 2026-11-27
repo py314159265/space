@@ -461,113 +461,115 @@
     }
     return rec.ready ? rec : null;
   }
-  // Scale, rotation, and translation only. A full affine shears an engraved
-  // plate onto the stars and throws the body off the asterism it belongs to.
-  function solveSimilarity(src, dst) {
-    if (src.length < 3) return null;
-    let mx = 0, my = 0, mu = 0, mv = 0;
-    for (let i = 0; i < src.length; i++) {
-      mx += src[i].x; my += src[i].y; mu += dst[i].x; mv += dst[i].y;
-    }
-    const n = src.length;
-    mx /= n; my /= n; mu /= n; mv /= n;
-    let varxy = 0, aNum = 0, bNum = 0;
-    for (let i = 0; i < src.length; i++) {
-      const x = src[i].x - mx, y = src[i].y - my;
-      const u = dst[i].x - mu, v = dst[i].y - mv;
-      varxy += x * x + y * y;
-      aNum += x * u + y * v;
-      bNum += x * v - y * u;
-    }
-    if (varxy < 1e-6) return null;
-    const a = aNum / varxy;
-    const b = bNum / varxy;
-    return [a, b, mu - (a * mx - b * my), mv - (b * mx + a * my)];
-  }
-  function pickAnchors(meta, hipPos) {
-    const pts = [];
-    for (const a of meta.anchors) {
-      const p = hipPos.get(a.hip);
-      if (!p) continue;
-      pts.push({ sx: a.x, sy: a.y, dx: p.x, dy: p.y });
-    }
-    if (pts.length < 3) return null;
-    let best = 0;
-    for (let i = 0; i < pts.length; i++) {
-      for (let j = i + 1; j < pts.length; j++) {
-        for (let k = j + 1; k < pts.length; k++) {
-          const area = Math.abs((pts[j].sx - pts[i].sx) * (pts[k].sy - pts[i].sy) - (pts[k].sx - pts[i].sx) * (pts[j].sy - pts[i].sy));
-          const screen = Math.abs((pts[j].dx - pts[i].dx) * (pts[k].dy - pts[i].dy) - (pts[k].dx - pts[i].dx) * (pts[j].dy - pts[i].dy));
-          if (screen > 24 && area > best) best = area;
-        }
-      }
-    }
-    return best > 300 ? pts : null;
-  }
-  function drawConstellationArt(hipPos, hipAlt) {
+  const artFits = new Map();
+  function buildArtFits() {
+    artFits.clear();
     for (const id of Object.keys(artIndex)) {
-      const meta = artIndex[id];
-      const visible = meta.anchors.some((a) => hipPos.has(a.hip));
-      if (!visible) continue;
+      const fit = ArtMesh.prepare(artIndex[id], (hip) => starByHip.get(hip) || null);
+      if (fit) artFits.set(id, fit);
+    }
+  }
+  function artTriangle(g, img, fit, screen, i0, i1, i2) {
+    const p0 = screen[i0], p1 = screen[i1], p2 = screen[i2];
+    if (!p0 || !p1 || !p2) return;
+    const limit = 2.2 * Math.hypot(w, h);
+    const far = (p) => Math.hypot(p.x - w / 2, p.y - h / 2) > limit;
+    if (far(p0) || far(p1) || far(p2)) return;
+    const minX = Math.min(p0.x, p1.x, p2.x), maxX = Math.max(p0.x, p1.x, p2.x);
+    const minY = Math.min(p0.y, p1.y, p2.y), maxY = Math.max(p0.y, p1.y, p2.y);
+    if (maxX < -30 || minX > w + 30 || maxY < -30 || minY > h + 30) return;
+    const src = [fit.verts[i0], fit.verts[i1], fit.verts[i2]].map((v) => ({ x: v.u, y: v.v }));
+    const aff = ArtMesh.solveAffine(src, [p0, p1, p2]);
+    if (!aff) return;
+    const cx = (p0.x + p1.x + p2.x) / 3;
+    const cy = (p0.y + p1.y + p2.y) / 3;
+    const grow = (p) => {
+      const dx = p.x - cx, dy = p.y - cy;
+      const len = Math.hypot(dx, dy) || 1;
+      return { x: p.x + dx / len, y: p.y + dy / len };
+    };
+    const g0 = grow(p0), g1 = grow(p1), g2 = grow(p2);
+    g.save();
+    g.beginPath();
+    g.moveTo(g0.x, g0.y);
+    g.lineTo(g1.x, g1.y);
+    g.lineTo(g2.x, g2.y);
+    g.closePath();
+    g.clip();
+    g.setTransform(aff.a * dpr, aff.b * dpr, aff.c * dpr, aff.d * dpr, aff.e * dpr, aff.f * dpr);
+    g.globalAlpha = 1;
+    g.drawImage(img, 0, 0);
+    g.restore();
+  }
+  let artBoard = null;
+  function drawConstellationArt(when, pose) {
+    for (const id of Object.keys(artIndex)) {
+      const fit = artFits.get(id);
+      if (!fit) continue;
       const rec = loadArt(id);
       if (!rec) continue;
       const img = night && rec.red ? rec.red : rec.img;
-      const tri = pickAnchors(meta, hipPos);
-      if (!tri) continue;
-      const aff = solveSimilarity(
-        tri.map((p) => ({ x: p.sx, y: p.sy })),
-        tri.map((p) => ({ x: p.dx, y: p.dy })),
-      );
-      if (!aff) continue;
-      const alts = meta.anchors.map((a) => hipAlt.get(a.hip)).filter((v) => v != null);
-      const mean = alts.reduce((s, v) => s + v, 0) / (alts.length || 1);
-      const horizon = clamp((mean * RAD + 4) / 22, 0, 1);
-      const zoom = clamp((96 - fov) / 50, 0.4, 1);
-      let alpha = 0.20 * zoom * horizon;
-      if (night) alpha *= 0.9;
+      let altSum = 0;
+      for (const a of fit.anchors) altSum += eqToHor(a.ra, a.dec, when).alt;
+      const meanAlt = (altSum / fit.anchors.length) * RAD;
+      const alpha = ArtMesh.figureAlpha(meanAlt, fov, night);
       if (alpha < 0.02) continue;
-      const [a, b, tx, ty] = aff;
-      const scale = Math.hypot(a, b);
-      if (scale > 12 || scale < 0.015) continue;
-      ctx.save();
-      ctx.beginPath();
-      const xs = tri.map((p) => p.dx);
-      const ys = tri.map((p) => p.dy);
-      const minX = Math.min(...xs), maxX = Math.max(...xs);
-      const minY = Math.min(...ys), maxY = Math.max(...ys);
-      const pad = Math.max(maxX - minX, maxY - minY) * 1.25;
-      ctx.rect(minX - pad, minY - pad, maxX - minX + pad * 2, maxY - minY + pad * 2);
-      ctx.clip();
-      ctx.setTransform(a * dpr, b * dpr, -b * dpr, a * dpr, tx * dpr, ty * dpr);
-      ctx.globalAlpha = alpha;
-      ctx.drawImage(img, 0, 0);
-      ctx.restore();
-      if (showAnchors) {
-        ctx.save();
-        ctx.globalAlpha = 1;
-        ctx.lineWidth = 1.5;
-        ctx.strokeStyle = "#3dffb0";
-        ctx.fillStyle = "#3dffb0";
-        ctx.font = "600 11px Source Sans 3, sans-serif";
-        ctx.textAlign = "left";
-        for (const p of tri) {
-          const x = a * p.sx - b * p.sy + tx;
-          const y = b * p.sx + a * p.sy + ty;
-          ctx.beginPath();
-          ctx.arc(x, y, 5, 0, Math.PI * 2);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(x - 8, y); ctx.lineTo(x + 8, y);
-          ctx.moveTo(x, y - 8); ctx.lineTo(x, y + 8);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(x, y); ctx.lineTo(p.dx, p.dy);
-          ctx.stroke();
-          const err = Math.hypot(x - p.dx, y - p.dy);
-          ctx.fillText(String(Math.round(err)), x + 7, y - 7);
-        }
-        ctx.restore();
+      const screen = fit.verts.map((v) => {
+        const hor = eqToHor(v.ra, v.dec, when);
+        return project(hor.az, hor.alt, pose);
+      });
+      if (!artBoard || artBoard.width !== canvas.width || artBoard.height !== canvas.height) {
+        artBoard = document.createElement("canvas");
+        artBoard.width = canvas.width;
+        artBoard.height = canvas.height;
       }
+      const g = artBoard.getContext("2d");
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g.clearRect(0, 0, w, h);
+      g.globalAlpha = 1;
+      const cols = fit.cols;
+      for (let j = 0; j < fit.n; j++) {
+        for (let i = 0; i < fit.n; i++) {
+          const i00 = j * cols + i;
+          const i10 = i00 + 1;
+          const i01 = i00 + cols;
+          const i11 = i01 + 1;
+          artTriangle(g, img, fit, screen, i00, i10, i01);
+          artTriangle(g, img, fit, screen, i10, i11, i01);
+        }
+      }
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(artBoard, 0, 0, w, h);
+      ctx.restore();
+      if (!showAnchors) continue;
+      ctx.save();
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "#3dffb0";
+      ctx.fillStyle = "#3dffb0";
+      ctx.font = "600 11px Source Sans 3, sans-serif";
+      ctx.textAlign = "left";
+      for (const a of fit.anchors) {
+        const sky = ArtMesh.anchorSky(fit, a);
+        const meshHor = eqToHor(sky.ra, sky.dec, when);
+        const starHor = eqToHor(a.ra, a.dec, when);
+        const mesh = project(meshHor.az, meshHor.alt, pose);
+        const star = project(starHor.az, starHor.alt, pose);
+        if (!mesh || !star) continue;
+        ctx.beginPath();
+        ctx.arc(mesh.x, mesh.y, 5, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(mesh.x - 8, mesh.y); ctx.lineTo(mesh.x + 8, mesh.y);
+        ctx.moveTo(mesh.x, mesh.y - 8); ctx.lineTo(mesh.x, mesh.y + 8);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(mesh.x, mesh.y); ctx.lineTo(star.x, star.y);
+        ctx.stroke();
+        ctx.fillText(String(Math.round(Math.hypot(mesh.x - star.x, mesh.y - star.y))), mesh.x + 7, mesh.y - 7);
+      }
+      ctx.restore();
     }
   }
 
@@ -599,7 +601,7 @@
       hipAlt.set(s.hip, hor.alt);
       hipHor.set(s.hip, hor);
     }
-    if (showArt) drawConstellationArt(hipPos, hipAlt);
+    if (showArt) drawConstellationArt(when, pose);
 
     for (const s of stars) {
       const p = hipPos.get(s.hip);
@@ -1276,6 +1278,7 @@
     names = starFile.names || {};
     stars = starFile.s.map((row) => ({ ra: row[0], dec: row[1], mag: row[2], bv: row[3], hip: row[4], con: row[5], ly: row[6] || 0 }));
     starByHip = new Map(stars.map((s) => [s.hip, s]));
+    buildArtFits();
     figures = figFile;
     refreshBodies();
     requestAnimationFrame(frame);
