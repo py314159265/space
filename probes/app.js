@@ -1,4 +1,4 @@
-/* 3D atlas at space.seagle.xyz/probes/.
+/* 3D atlas at space.example.com/probes/.
  * Tracks are /data/probes.json, one directory above this page.
  */
 import * as THREE from "./vendor/three.module.js";
