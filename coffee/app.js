@@ -68,6 +68,7 @@
   let startedAt = 0;
   let redacted = false;
   let wakeLock = null;
+  let lastStain = 0;
 
   function cfg() { return CONFIG[diff]; }
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
@@ -85,11 +86,17 @@
     canvas.style.width = w + "px";
     canvas.style.height = h + "px";
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const pw = Math.min(w - 28, 420);
-    const ph = Math.min(h * 0.62, 560);
-    paper = { x: (w - pw) / 2, y: h * 0.22, w: pw, h: ph, lineH: ph / (LINES.length + 1.2), top: h * 0.22 + 18 };
+    const pw = Math.min(w - 28, 460);
+    const ph = Math.min(h * 0.7, 620);
+    const py = h * 0.18;
+    paper = {
+      x: (w - pw) / 2, y: py, w: pw, h: ph,
+      lineH: (ph - 40) / LINES.length,
+      top: py + 32,
+      rot: -0.04,
+    };
     const passY = paper.top + PASSWORD_LINE * paper.lineH + paper.lineH * 0.35;
-    cup = { x: w / 2, y: passY, r: Math.min(pw, ph) * 0.2 };
+    cup = { x: paper.x + pw / 2, y: passY, r: Math.min(pw * 0.22, 84) };
     if (!foam.length) {
       foam = Array.from({ length: 7 }, (_, i) => ({ a: i, r: 0.15 + (i % 3) * 0.05, o: i * 0.7 }));
     }
@@ -112,32 +119,60 @@
     if (ripples.length > 6) ripples.shift();
   }
 
+  function paintSpill() {
+    $("meter").style.width = spill + "%";
+    $("spill-pct").textContent = Math.round(spill) + "%";
+  }
+
   function spillAt(ang, amount) {
     spill = clamp(spill + amount * cfg().spill, 0, 100);
-    $("meter").style.width = spill + "%";
-    const lineY = paper.top + PASSWORD_LINE * paper.lineH + paper.lineH * 0.45;
-    const cx = cup.x + Math.cos(ang) * (cup.r + 28);
-    const cy = lineY + Math.sin(ang) * 8;
-    for (let i = 0; i < 8; i++) {
-      const a = ang + (Math.random() - 0.5) * 0.8;
-      drops.push({
-        x: cx, y: cy,
-        vx: Math.cos(a) * (80 + Math.random() * 160),
-        vy: Math.sin(a) * (80 + Math.random() * 140) + 40,
-        r: 1.5 + Math.random() * 2.4,
-        life: 0.45 + Math.random() * 0.35,
-      });
+    paintSpill();
+    const now = performance.now();
+    if (now - lastStain > 420) {
+      lastStain = now;
+      const lineY = paper.top + PASSWORD_LINE * paper.lineH + paper.lineH * 0.4;
+      const saucerR = cup.r * 1.36;
+      const n = stains.length;
+      const sx = cup.x + Math.cos(ang) * (saucerR + 20 + n * 8);
+      const sy = lineY + (n === 0 ? -paper.lineH : paper.lineH * 1.6);
+      const seed = (Math.random() * 1e9) | 0;
+      const rng = rand(seed || 1);
+      const lobes = Array.from({ length: 9 }, () => 0.82 + rng() * 0.28);
+      const tears = Array.from({ length: 8 }, () => ({
+        ang: ang + (rng() - 0.5) * 1.1,
+        dist: 26 + rng() * 22,
+        len: 9 + rng() * 8,
+        wid: 1.3 + rng() * 1.1,
+      }));
+      const specks = Array.from({ length: 9 }, () => ({
+        ang: ang + (rng() - 0.5) * 1.8,
+        dist: 30 + rng() * 28,
+        s: 0.45 + rng() * 0.7,
+      }));
+      const mottles = Array.from({ length: 5 }, () => ({
+        x: (rng() - 0.5) * 18,
+        y: (rng() - 0.5) * 14,
+        rx: 6 + rng() * 10,
+        ry: 4 + rng() * 7,
+      }));
+      const radius = 38 + rng() * 14;
+      stains.push({ x: sx, y: sy, r: radius, lobes, tears, specks, mottles });
+      const top = lineY - 2;
+      const bot = lineY + paper.lineH;
+      if (sy + radius > top && sy - radius < bot && sx > paper.x && sx < paper.x + paper.w) redacted = true;
+      const rimX = cup.x + Math.cos(ang) * cup.r;
+      const rimY = cup.y + Math.sin(ang) * cup.r;
+      for (let i = 0; i < 4; i++) {
+        const a = ang + (Math.random() - 0.5) * 0.5;
+        drops.push({
+          x: rimX, y: rimY,
+          vx: Math.cos(a) * (40 + Math.random() * 70),
+          vy: Math.sin(a) * (30 + Math.random() * 50) + 20,
+          r: 1.4 + Math.random() * 1.6,
+          life: 0.35 + Math.random() * 0.25,
+        });
+      }
     }
-    const seed = (Math.random() * 1e9) | 0;
-    const rng = rand(seed || 1);
-    const lobes = Array.from({ length: 8 }, () => 0.55 + rng() * 0.7);
-    const tears = Array.from({ length: 14 }, () => {
-      const a = ang + (rng() - 0.5) * 1.4;
-      const dist = cup.r * (0.15 + rng() * 0.9);
-      return { x: Math.cos(a) * dist, y: Math.sin(a) * dist, rx: 2 + rng() * 5, ry: 1 + rng() * 2, a };
-    });
-    stains.push({ x: cx, y: cy, r: 16 + Math.random() * 22, lobes, tears, seed });
-    if (Math.abs(cy - lineY) < paper.lineH) redacted = true;
     if (spill >= 100) finish(true);
   }
 
@@ -230,127 +265,241 @@
     for (const f of foam) f.o += dt * 0.6;
     if (playing && mode === "sprint" && !calibrating) {
       left = Math.max(0, sprintSecs - (performance.now() - startedAt) / 1000);
-      $("timer").textContent = left.toFixed(1);
+      const secs = Math.ceil(left);
+      $("timer").textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
       if (left <= 0) finish(false);
     }
+  }
+
+  function stainPath(s) {
+    const steps = 56;
+    ctx.beginPath();
+    for (let i = 0; i <= steps; i++) {
+      const a = (i / steps) * Math.PI * 2;
+      const f = (a / (Math.PI * 2)) * s.lobes.length;
+      const i0 = Math.floor(f) % s.lobes.length;
+      const i1 = (i0 + 1) % s.lobes.length;
+      const t = f - Math.floor(f);
+      const lobe = s.lobes[i0] * (1 - t) + s.lobes[i1] * t;
+      const rr = s.r * lobe;
+      const x = Math.cos(a) * rr;
+      const y = Math.sin(a) * rr;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
   }
 
   function drawStain(s) {
     ctx.save();
     ctx.translate(s.x, s.y);
     ctx.globalCompositeOperation = "multiply";
-    ctx.beginPath();
-    for (let i = 0; i <= s.lobes.length; i++) {
-      const t = i % s.lobes.length;
-      const a = t / s.lobes.length * Math.PI * 2;
-      const rr = s.r * s.lobes[t];
-      const x = Math.cos(a) * rr;
-      const y = Math.sin(a) * rr * 0.86;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.closePath();
-    ctx.fillStyle = "rgba(214, 164, 92, 0.72)";
+    stainPath(s);
+    const g = ctx.createRadialGradient(0, 0, s.r * 0.12, 0, 0, s.r);
+    g.addColorStop(0, "rgba(252, 236, 206, 0.28)");
+    g.addColorStop(0.7, "rgba(230, 186, 112, 0.45)");
+    g.addColorStop(1, "rgba(206, 154, 78, 0.62)");
+    ctx.fillStyle = g;
     ctx.fill();
-    ctx.lineWidth = 2.2;
-    ctx.strokeStyle = "rgba(150, 92, 40, 0.9)";
+    ctx.lineWidth = 1.15;
+    ctx.strokeStyle = "rgba(168, 112, 52, 0.72)";
     ctx.stroke();
-    ctx.fillStyle = "rgba(186, 122, 58, 0.95)";
-    for (const d of s.tears) {
+    ctx.fillStyle = "rgba(250, 232, 196, 0.5)";
+    for (const m of s.mottles) {
       ctx.beginPath();
-      ctx.ellipse(d.x, d.y, d.rx, d.ry, d.a, 0, Math.PI * 2);
+      ctx.ellipse(m.x, m.y, m.rx, m.ry, 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = "rgba(176, 114, 52, 0.62)";
+    for (const d of s.tears) {
+      ctx.save();
+      ctx.translate(Math.cos(d.ang) * d.dist, Math.sin(d.ang) * d.dist);
+      ctx.rotate(d.ang);
+      ctx.beginPath();
+      ctx.moveTo(d.len * 0.55, 0);
+      ctx.quadraticCurveTo(0, d.wid, -d.len * 0.4, 0);
+      ctx.quadraticCurveTo(0, -d.wid, d.len * 0.55, 0);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.fillStyle = "rgba(160, 102, 46, 0.55)";
+    for (const p of s.specks) {
+      ctx.beginPath();
+      ctx.arc(Math.cos(p.ang) * p.dist, Math.sin(p.ang) * p.dist, p.s, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.restore();
   }
 
   function draw() {
-    ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = "#2a1c14";
+    const bg = ctx.createLinearGradient(0, 0, 0, h);
+    bg.addColorStop(0, "#fbf6ee");
+    bg.addColorStop(1, "#f0dcc4");
+    ctx.fillStyle = bg;
     ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = "#f4e6cf";
-    roundRect(paper.x, paper.y, paper.w, paper.h, 10);
+
+    const pcx = paper.x + paper.w / 2;
+    const pcy = paper.y + paper.h / 2;
+    ctx.save();
+    ctx.translate(pcx, pcy);
+    ctx.rotate(paper.rot);
+    ctx.translate(-pcx, -pcy);
+    ctx.save();
+    ctx.shadowColor = "rgba(90, 55, 30, 0.22)";
+    ctx.shadowBlur = 22;
+    ctx.shadowOffsetY = 12;
+    roundRect(paper.x, paper.y, paper.w, paper.h, 6);
+    ctx.fillStyle = "#fbf8f3";
     ctx.fill();
+    ctx.restore();
     ctx.save();
     ctx.beginPath();
-    roundRect(paper.x, paper.y, paper.w, paper.h, 10);
+    roundRect(paper.x, paper.y, paper.w, paper.h, 6);
     ctx.clip();
-    ctx.font = `${Math.max(10, paper.lineH * 0.62)}px ui-monospace, monospace`;
+    ctx.fillStyle = "#8a7360";
+    ctx.font = "11px Source Sans 3, sans-serif";
     ctx.textBaseline = "top";
+    ctx.fillText("definitely_secure.py  ·  localhost  ·  1/1", paper.x + 12, paper.y + 8);
+    ctx.strokeStyle = "rgba(90, 55, 30, 0.12)";
+    ctx.beginPath();
+    ctx.moveTo(paper.x + 10, paper.y + 24);
+    ctx.lineTo(paper.x + paper.w - 10, paper.y + 24);
+    ctx.stroke();
+    const sample = LINES.reduce((a, b) => (a.length > b.length ? a : b));
+    ctx.font = "12px ui-monospace, monospace";
+    const fit = (paper.w - 46) / Math.max(1, ctx.measureText(sample).width);
+    const fontPx = Math.max(8, Math.min(paper.lineH * 0.72, 12 * fit));
+    ctx.font = `${fontPx}px ui-monospace, monospace`;
     LINES.forEach((line, i) => {
       const y = paper.top + i * paper.lineH;
-      ctx.fillStyle = "#b9a48a";
+      ctx.fillStyle = "#b3a394";
       ctx.fillText(String(i + 1).padStart(2, " "), paper.x + 8, y);
-      ctx.fillStyle = line.startsWith("#") ? "#8d9a72" : "#3d2a1e";
-      ctx.fillText(line, paper.x + 32, y);
+      ctx.fillStyle = line.startsWith("#") ? "#6d8a55" : "#3d2b22";
+      ctx.fillText(line, paper.x + 30, y);
     });
     for (const s of stains) drawStain(s);
     ctx.restore();
 
-    const aim = Math.atan2(surf.y, surf.x);
-    const shift = Math.min(cup.r * 0.45, Math.hypot(surf.x, surf.y) * cup.r * 1.6);
-    const ox = Math.cos(aim) * shift;
-    const oy = Math.sin(aim) * shift;
+    const tilt = Math.hypot(surf.x, surf.y);
+    const aim = tilt > 0.0001 ? Math.atan2(surf.y, surf.x) : 0;
+    const pool = Math.min(cup.r * 0.22, tilt * cup.r * 1.4);
+    const ox = Math.cos(aim) * pool;
+    const oy = Math.sin(aim) * pool;
+    const inner = cup.r * 0.74;
+    const saucer = cup.r * 1.36;
 
+    ctx.save();
+    ctx.shadowColor = "rgba(58, 36, 24, 0.22)";
+    ctx.shadowBlur = 18;
+    ctx.shadowOffsetY = 10;
     ctx.beginPath();
-    ctx.ellipse(cup.x, cup.y + cup.r * 0.72, cup.r * 1.35, cup.r * 0.42, 0, 0, Math.PI * 2);
-    ctx.fillStyle = "#efe2cf";
+    ctx.arc(cup.x, cup.y, saucer, 0, Math.PI * 2);
+    ctx.fillStyle = "#f6efe6";
     ctx.fill();
-    ctx.strokeStyle = "#c9b59a";
+    ctx.restore();
+    ctx.beginPath();
+    ctx.arc(cup.x, cup.y, saucer, 0, Math.PI * 2);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "#e0d0be";
     ctx.stroke();
 
     ctx.beginPath();
-    ctx.ellipse(cup.x, cup.y, cup.r, cup.r * 0.96, 0, 0, Math.PI * 2);
-    ctx.fillStyle = "#f7f1e8";
+    ctx.arc(cup.x, cup.y, cup.r, 0, Math.PI * 2);
+    ctx.fillStyle = "#fbf7f2";
     ctx.fill();
-    ctx.lineWidth = cup.r * 0.08;
-    ctx.strokeStyle = "#d9cbb8";
-    ctx.stroke();
 
     ctx.save();
     ctx.beginPath();
-    ctx.ellipse(cup.x, cup.y, cup.r * 0.86, cup.r * 0.82, 0, 0, Math.PI * 2);
+    ctx.arc(cup.x, cup.y, inner, 0, Math.PI * 2);
     ctx.clip();
-    const thin = 1 - Math.min(0.45, Math.hypot(surf.x, surf.y) * 0.8);
-    ctx.beginPath();
-    ctx.ellipse(cup.x + ox, cup.y + oy, cup.r * 0.78, cup.r * 0.72 * thin, 0, 0, Math.PI * 2);
-    const g = ctx.createRadialGradient(cup.x + ox * 0.3, cup.y + oy * 0.3, 4, cup.x + ox, cup.y + oy, cup.r);
-    g.addColorStop(0, "#8a4b28");
-    g.addColorStop(0.55, "#5c3018");
-    g.addColorStop(1, "#3a1e10");
-    ctx.fillStyle = g;
-    ctx.fill();
+    const coffee = ctx.createRadialGradient(cup.x + ox * 0.6, cup.y + oy * 0.6, inner * 0.15, cup.x + ox, cup.y + oy, inner * 1.05);
+    coffee.addColorStop(0, "#8d5130");
+    coffee.addColorStop(0.55, "#623418");
+    coffee.addColorStop(1, "#4a2814");
+    ctx.fillStyle = coffee;
+    ctx.fillRect(cup.x - inner, cup.y - inner, inner * 2, inner * 2);
+    const thin = clamp(tilt / (cfg().tilt * Math.PI / 180), 0, 1);
+    if (thin > 0.05) {
+      ctx.globalAlpha = 0.55 * thin;
+      ctx.fillStyle = "#f4eadc";
+      ctx.beginPath();
+      ctx.ellipse(
+        cup.x - Math.cos(aim) * inner * 0.9,
+        cup.y - Math.sin(aim) * inner * 0.9,
+        inner * 0.16,
+        inner * 0.055,
+        aim + Math.PI / 2,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
     ctx.globalAlpha = 0.55;
     ctx.fillStyle = "#e7c48a";
     for (const f of foam) {
-      const fx = cup.x + ox * 0.8 + Math.cos(f.o + f.a) * cup.r * f.r;
-      const fy = cup.y + oy * 0.8 + Math.sin(f.o * 0.8 + f.a) * cup.r * f.r * 0.7;
+      const fx = cup.x + ox * 1.35 + Math.cos(f.o + f.a) * inner * f.r * 0.85;
+      const fy = cup.y + oy * 1.35 + Math.sin(f.o * 0.8 + f.a) * inner * f.r * 0.65;
       ctx.beginPath();
-      ctx.ellipse(fx, fy, cup.r * 0.16, cup.r * 0.09, f.a, 0, Math.PI * 2);
+      ctx.ellipse(fx, fy, inner * 0.16, inner * 0.09, f.a, 0, Math.PI * 2);
       ctx.fill();
     }
-    ctx.globalAlpha = 0.45;
-    ctx.fillStyle = "#fff4df";
+    ctx.globalAlpha = 0.4;
+    ctx.fillStyle = "#fff6e4";
     ctx.beginPath();
-    ctx.ellipse(cup.x - ox * 0.35, cup.y - oy * 0.35 - cup.r * 0.18, cup.r * 0.22, cup.r * 0.1, -0.4, 0, Math.PI * 2);
+    ctx.ellipse(cup.x - ox * 0.45, cup.y - oy * 0.45 - inner * 0.12, inner * 0.22, inner * 0.09, -0.5, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
-    const bubble = { x: cup.x + ox * 0.5, y: cup.y + oy * 0.5 };
     ctx.beginPath();
-    ctx.arc(bubble.x, bubble.y, cup.r * 0.16, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(255,248,238,0.55)";
-    ctx.lineWidth = 1.5;
+    ctx.arc(cup.x, cup.y, (cup.r + inner) / 2, 0, Math.PI * 2);
+    ctx.lineWidth = cup.r - inner;
+    ctx.strokeStyle = "#f7f1e8";
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cup.x, cup.y, cup.r, 0, Math.PI * 2);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(90, 60, 40, 0.16)";
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cup.x, cup.y, inner, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(58, 28, 14, 0.35)";
+    ctx.lineWidth = 2;
     ctx.stroke();
 
-    ctx.fillStyle = "#6b3a1e";
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "#fbf7f2";
+    ctx.lineWidth = cup.r * 0.13;
+    ctx.beginPath();
+    ctx.arc(cup.x + cup.r * 0.98, cup.y, cup.r * 0.3, -1.15, 1.15);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(90, 60, 40, 0.35)";
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+    ctx.restore();
+
+    const bx = cup.x + ox * 0.85;
+    const by = cup.y - cup.r * 1.22 + oy * 0.45;
+    ctx.beginPath();
+    ctx.arc(bx, by, 9, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(90, 60, 40, 0.35)";
+    ctx.lineWidth = 1.25;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(bx + ox * 0.15, by + oy * 0.15, 2.2, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(90, 60, 40, 0.55)";
+    ctx.fill();
+
+    ctx.fillStyle = "rgba(176, 112, 48, 0.75)";
     for (const d of drops) {
-      ctx.globalAlpha = clamp(d.life * 2, 0, 1);
+      ctx.globalAlpha = clamp(d.life * 2.2, 0, 0.8);
       ctx.beginPath();
       ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.globalAlpha = 1;
+    ctx.restore();
   }
 
   function roundRect(x, y, rw, rh, r) {
@@ -368,7 +517,7 @@
     last = t;
     if (playing) tick(dt);
     draw();
-    window.__brew = { steps, spill, redacted, playing, mode, diff, surf: { x: surf.x, y: surf.y } };
+    window.__brew = { steps, spill, redacted, playing, mode, diff, stains: stains.length, surf: { x: surf.x, y: surf.y } };
     requestAnimationFrame(loop);
   }
 
@@ -376,9 +525,9 @@
     if (!playing) return;
     playing = false;
     const best = writeBest();
-    $("play").hidden = true;
+    $("hud").hidden = true;
+    $("hold").hidden = true;
     $("over").hidden = false;
-    $("over-title").textContent = spilled ? "Spilled" : "Time";
     $("over-mode").textContent = `${mode === "sprint" ? "Sprint " + sprintSecs + "s" : "Endurance"} · ${diff[0].toUpperCase() + diff.slice(1)}`;
     $("over-steps").textContent = String(steps);
     $("over-note").textContent = redacted ? "Password successfully redacted by coffee" : "The cup is lighter. The code is not.";
@@ -404,10 +553,14 @@
     drops.length = 0;
     ripples.length = 0;
     surf.x = surf.y = surf.vx = surf.vy = 0;
+    lastStain = 0;
     $("steps").textContent = "0";
-    $("meter").style.width = "0%";
+    paintSpill();
     $("badge").textContent = diff[0].toUpperCase() + diff.slice(1);
-    $("timer").hidden = mode !== "sprint";
+    $("clock").hidden = mode !== "sprint";
+    $("timer").textContent = `0:${String(sprintSecs).padStart(2, "0")}`;
+    $("hud").hidden = false;
+    $("hold").hidden = false;
     $("gate").hidden = true;
     $("over").hidden = true;
     $("play").hidden = false;
@@ -429,6 +582,7 @@
     playing = false;
     $("over").hidden = true;
     $("play").hidden = true;
+    $("hud").hidden = false;
     $("gate").hidden = false;
   }
 

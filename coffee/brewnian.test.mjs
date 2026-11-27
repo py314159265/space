@@ -34,11 +34,15 @@ for (let i = 0; i < 20; i++) {
   await page.waitForTimeout(40);
 }
 await page.waitForFunction(() => window.__brew && window.__brew.playing && document.getElementById("count").hidden);
+const clock = await page.locator("#timer").innerText();
+if (!/^\d:\d\d$/.test(clock)) throw new Error(`timer ${clock}`);
 await page.screenshot({ path: `${OUT}/sprint.png` });
 
-for (let i = 0; i < 25; i++) {
+for (let i = 0; i < 80; i++) {
   await page.evaluate(motion(4.2, 1.1, 8.2));
   await page.waitForTimeout(30);
+  const state = await page.evaluate(() => window.__brew);
+  if (state.stains >= 2 && state.spill < 100) break;
 }
 await page.screenshot({ path: `${OUT}/tilt.png` });
 
@@ -50,6 +54,11 @@ await page.waitForSelector("#over:not([hidden])", { timeout: 8000 });
 const note = await page.locator("#over-note").innerText();
 if (!/redacted/i.test(note)) throw new Error(`note: ${note}`);
 await page.screenshot({ path: `${OUT}/score.png` });
+const hub = await context.newPage();
+await hub.setViewportSize({ width: 390, height: 844 });
+await hub.goto(`${base}/`, { waitUntil: "domcontentloaded" });
+if (!(await hub.locator("text=Brewnian Motion").count())) throw new Error("hub card missing");
+await hub.screenshot({ path: `${OUT}/hub.png`, fullPage: true });
 if (errors.length) throw new Error(errors.join("\n"));
 await browser.close();
 console.log("PASS", note);
