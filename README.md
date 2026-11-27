@@ -1,6 +1,6 @@
-# space.seagle.xyz
+# space.example.com
 
-Static site for [space.seagle.xyz](https://space.seagle.xyz), published with GitHub Pages from the `main` branch at the repository root.
+Static site for [space.example.com](https://space.example.com), published with GitHub Pages from the `main` branch at the repository root.
 
 ## Explorers of the Solar System
 
@@ -18,7 +18,7 @@ The 3D atlas is at [`/probes/`](probes/). Planets are drawn from orbital element
 
 ## Pages
 
-In **Settings → Pages**, deploy from branch `main`, folder `/ (root)`. The `CNAME` file is `space.seagle.xyz`.
+In **Settings → Pages**, deploy from branch `main`, folder `/ (root)`. The `CNAME` file is `space.example.com`.
 
 ## Data
 

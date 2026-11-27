@@ -84,7 +84,7 @@ def fetch_text(command: str, start: str, stop: str, step: str) -> str:
     })
     req = urllib.request.Request(
         API + "?" + query,
-        headers={"User-Agent": "seagle-probes/1.0 (space.seagle.xyz)"},
+        headers={"User-Agent": "seagle-probes/1.0 (space.example.com)"},
     )
     with urllib.request.urlopen(req, timeout=120) as res:
         payload = json.load(res)
