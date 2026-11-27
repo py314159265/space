@@ -12,6 +12,11 @@ Constellation stick figures in sky/data/figures.json are traditional
 patterns written as pairs of catalog stars. They are recorded as
 astronomical facts, not copied from a chart or a software transcription.
 
+Faint figure drawings in sky/data/art/ are original silhouettes made for
+this site and dedicated to the public domain (CC0-1.0). They are not
+copied from a printed star atlas. Each figure is anchored to catalog
+stars so it follows the sky. Sources are listed in sky/data/art/credits.json.
+
 Short notes in sky/data/constellations.json are original summaries of
 the 88 constellations: names, meanings, area order, and a sentence or
 two of background. They are not copied from an encyclopedia article.
