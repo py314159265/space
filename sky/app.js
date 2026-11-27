@@ -461,15 +461,28 @@
     return rec.ready ? rec : null;
   }
   function solveAffine(src, dst) {
-    const m = [];
-    for (let i = 0; i < 3; i++) {
-      m.push([src[i].x, src[i].y, 1, 0, 0, 0, dst[i].x]);
-      m.push([0, 0, 0, src[i].x, src[i].y, 1, dst[i].y]);
+    if (src.length < 3) return null;
+    const ata = Array.from({ length: 6 }, () => new Float64Array(6));
+    const atb = new Float64Array(6);
+    for (let i = 0; i < src.length; i++) {
+      const x = src[i].x, y = src[i].y;
+      const rows = [
+        [x, y, 1, 0, 0, 0, dst[i].x],
+        [0, 0, 0, x, y, 1, dst[i].y],
+      ];
+      for (const row of rows) {
+        for (let c = 0; c < 6; c++) {
+          atb[c] += row[c] * row[6];
+          for (let k = 0; k < 6; k++) ata[c][k] += row[c] * row[k];
+        }
+      }
     }
+    const m = [];
+    for (let r = 0; r < 6; r++) m.push([...ata[r], atb[r]]);
     for (let col = 0; col < 6; col++) {
       let pivot = col;
       for (let r = col + 1; r < 6; r++) if (Math.abs(m[r][col]) > Math.abs(m[pivot][col])) pivot = r;
-      if (Math.abs(m[pivot][col]) < 1e-6) return null;
+      if (Math.abs(m[pivot][col]) < 1e-8) return null;
       const tmp = m[col]; m[col] = m[pivot]; m[pivot] = tmp;
       const div = m[col][col];
       for (let c = col; c < 7; c++) m[col][c] /= div;
@@ -488,16 +501,18 @@
       if (!p) continue;
       pts.push({ sx: a.x, sy: a.y, dx: p.x, dy: p.y });
     }
+    if (pts.length < 3) return null;
+    let best = 0;
     for (let i = 0; i < pts.length; i++) {
       for (let j = i + 1; j < pts.length; j++) {
         for (let k = j + 1; k < pts.length; k++) {
           const area = Math.abs((pts[j].sx - pts[i].sx) * (pts[k].sy - pts[i].sy) - (pts[k].sx - pts[i].sx) * (pts[j].sy - pts[i].sy));
           const screen = Math.abs((pts[j].dx - pts[i].dx) * (pts[k].dy - pts[i].dy) - (pts[k].dx - pts[i].dx) * (pts[j].dy - pts[i].dy));
-          if (area > 80 && screen > 40) return [pts[i], pts[j], pts[k]];
+          if (screen > 24 && area > best) best = area;
         }
       }
     }
-    return null;
+    return best > 300 ? pts : null;
   }
   function drawConstellationArt(hipPos, hipAlt) {
     for (const id of Object.keys(artIndex)) {
@@ -530,7 +545,7 @@
       const ys = tri.map((p) => p.dy);
       const minX = Math.min(...xs), maxX = Math.max(...xs);
       const minY = Math.min(...ys), maxY = Math.max(...ys);
-      const pad = Math.max(maxX - minX, maxY - minY) * 0.9;
+      const pad = Math.max(maxX - minX, maxY - minY) * 1.25;
       ctx.rect(minX - pad, minY - pad, maxX - minX + pad * 2, maxY - minY + pad * 2);
       ctx.clip();
       ctx.setTransform(A * dpr, D * dpr, B * dpr, E * dpr, C * dpr, F * dpr);

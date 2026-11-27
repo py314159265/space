@@ -1,386 +1,276 @@
 #!/usr/bin/env python3
-"""Original constellation silhouettes, anchored to catalog stars.
+"""Build faint constellation figures from Sidney Hall's Urania's Mirror.
 
-These drawings are made for this site. They are not traced from a
-published atlas.
+The plates are public-domain scans. This script finds the engraved stars,
+fits them to catalog positions, and writes a light-on-transparent WebP
+plus anchor stars for each figure.
 """
 import json
+import re
 from pathlib import Path
 
+import cv2
+import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).resolve().parents[1]
-STARS = ROOT / "sky" / "data" / "stars.json"
+PLATES = Path("/tmp/atlas")
 OUT = ROOT / "sky" / "data" / "art"
-SIZE = 420
+STARS = json.loads((ROOT / "sky" / "data" / "stars.json").read_text())
+FIGURES = json.loads((ROOT / "sky" / "data" / "figures.json").read_text())
+CONS = STARS["con"]
+META = json.loads((PLATES / "meta.json").read_text())
+
+JOBS = [
+    ("Ori", "orion"), ("Tau", "taurus"), ("Gem", "gemini"), ("CMa", "canis"),
+    ("UMa", "uma"), ("UMi", "dra"), ("Cas", "cas"), ("Cyg", "cyglyr"),
+    ("Lyr", "cyglyr"), ("Aql", "aql"), ("Sco", "sco"), ("Sgr", "sgr"),
+    ("Leo", "leo"), ("Vir", "vir"), ("And", "and"), ("Per", "per"),
+    ("Peg", "peg"), ("Ari", "ari"), ("Psc", "psc"), ("Aqr", "aqr"),
+    ("Cap", "cap"), ("Lib", "lib"), ("Cnc", "cnc"), ("Boo", "boo"),
+    ("Her", "her"), ("Dra", "dra"), ("Aur", "aur"), ("Cep", "cep"),
+    ("Cen", "south"),
+]
 
 
-def load_stars():
-    data = json.loads(STARS.read_text())
-    by_hip = {}
-    for row in data["s"]:
-        by_hip[row[4]] = {"ra": row[0], "dec": row[1], "mag": row[2]}
-    return by_hip
+def plate_path(key):
+    for ext in (".jpg", ".png", ".jpeg"):
+        p = PLATES / f"{key}{ext}"
+        if p.exists():
+            return p
+    raise SystemExit(f"missing plate {key}")
 
 
-class Fig:
-    def __init__(self, by_hip, hips):
-        pts = []
-        for hip in hips:
-            if hip not in by_hip:
-                raise SystemExit(f"missing HIP {hip}")
-            s = by_hip[hip]
-            pts.append((hip, s["ra"] * 15.0, s["dec"]))
-        ra0 = sum(p[1] for p in pts) / len(pts)
-        dec0 = sum(p[2] for p in pts) / len(pts)
-        cosd = max(0.2, abs(__import__("math").cos(dec0 * 3.14159265 / 180)))
-        self.raw = {}
-        xs, ys = [], []
-        for hip, ra, dec in pts:
-            east = (ra - ra0) * cosd
-            north = dec - dec0
-            self.raw[hip] = (east, north)
-            xs.append(east)
-            ys.append(north)
-        pad = 0.55
-        self.minx = min(xs) - (max(xs) - min(xs) + 1) * pad
-        self.maxx = max(xs) + (max(xs) - min(xs) + 1) * pad
-        self.miny = min(ys) - (max(ys) - min(ys) + 1) * pad
-        self.maxy = max(ys) + (max(ys) - min(ys) + 1) * pad
-        self.span = max(self.maxx - self.minx, self.maxy - self.miny, 1)
-        self.scale = (SIZE - 8) / self.span
-        self.ox = (SIZE - (self.maxx - self.minx) * self.scale) / 2 - self.minx * self.scale
-        self.oy = (SIZE - (self.maxy - self.miny) * self.scale) / 2 + self.maxy * self.scale
-        self.mask = Image.new("L", (SIZE, SIZE), 0)
-        self.draw = ImageDraw.Draw(self.mask)
-        self.anchors = []
-        for hip, (east, north) in self.raw.items():
-            x, y = self.p(east, north)
-            self.anchors.append({"hip": hip, "x": round(x, 1), "y": round(y, 1)})
-
-    def p(self, east, north):
-        return (east * self.scale + self.ox, self.oy - north * self.scale)
-
-    def at(self, hip):
-        east, north = self.raw[hip]
-        return east, north
-
-    def blend(self, a, b, t):
-        return (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
-
-    def ell(self, center, rx, ry, rot=0):
-        cx, cy = self.p(*center)
-        rx *= self.scale
-        ry *= self.scale
-        box = [cx - rx, cy - ry, cx + rx, cy + ry]
-        self.draw.ellipse(box, fill=210)
-
-    def poly(self, points):
-        self.draw.polygon([self.p(*q) for q in points], fill=200)
-
-    def stroke(self, a, b, width):
-        self.draw.line([self.p(*a), self.p(*b)], fill=200, width=max(2, int(width * self.scale)))
-
-    def save(self, path):
-        soft = self.mask.filter(ImageFilter.GaussianBlur(radius=1.6))
-        white = Image.new("L", (SIZE, SIZE), 255)
-        img = Image.merge("RGBA", (white, white, white, soft))
-        img.save(path, "WEBP", quality=68, method=6)
-
-
-def person(fig, head, feet, shoulder=None, club=None, shield=None):
-    body = fig.blend(head, feet, 0.45)
-    fig.ell(body, abs(head[0] - feet[0]) * 0.28 + 1.2, abs(head[1] - feet[1]) * 0.42 + 1.4)
-    fig.ell(fig.blend(head, feet, -0.12), 1.1, 1.3)
-    if shoulder and club:
-        fig.stroke(shoulder, club, 0.7)
-        fig.ell(club, 0.8, 0.8)
-    if shoulder and shield:
-        fig.ell(shield, 1.6, 2.2)
-
-
-BY = None
-
-
-def S(hip):
-    return BY.raw[hip]
-
-
-def build():
-    global BY
-    by_hip = load_stars()
-    specs = {
-        "Ori": [27989, 25336, 24436, 27366, 26727, 26311, 25930],
-        "Tau": [21421, 25428, 20889, 17702, 17499],
-        "Gem": [37826, 36850, 32349] if False else [37826, 36850, 31681, 30343, 34693],
-        "CMa": [32349, 33579, 34444, 30324, 30122],
-        "UMa": [54061, 53910, 58001, 59774, 62956, 65378, 67301],
-        "UMi": [11767, 72607, 75097, 77055, 79822],
-        "Cas": [3179, 746, 4427, 6686, 8886],
-        "Cyg": [102098, 100453, 95947, 97165, 102488],
-        "Lyr": [91262, 91926, 92420, 93194],
-        "Aql": [97649, 97278, 95501, 98036],
-        "Sco": [80763, 81266, 82396, 86228, 85927],
-        "Sgr": [88635, 90185, 92041, 93506, 92855],
-        "Leo": [49669, 50583, 57632, 54879, 48455],
-        "Vir": [65474, 66249, 61941, 68520],
-        "And": [677, 5447, 9640],
-        "Per": [15863, 14576, 17358, 18532],
-        "Peg": [113963, 113881, 1067, 107315],
-        "Ari": [9884, 8903, 8832],
-        "Psc": [9487, 118268, 113889],
-        "Aqr": [106278, 109074, 110395, 110960],
-        "Cap": [100345, 100064, 102485, 106985],
-        "Lib": [72622, 74785, 76333, 73714],
-        "Cnc": [42911, 40526, 44066, 43103],
-        "Boo": [69673, 72105, 74666, 71075],
-        "Her": [84345, 80816, 81693, 80170],
-        "Dra": [85670, 87833, 87585, 75458, 80331],
-        "Aur": [24608, 28360, 28380, 23416],
-        "Cep": [105199, 106032, 112724, 116727],
-        "Cru": [60718, 62434, 59747, 61084],
-        "Cen": [71683, 68702, 61932],
-    }
-    # Drop hips missing from the bright subset.
-    clean = {}
-    for cid, hips in specs.items():
-        keep = [h for h in hips if h in by_hip]
-        if len(keep) < 3:
-            print("skip", cid, "only", keep)
+def detect(gray, cap=200):
+    h, w = gray.shape
+    scored = []
+    dil = cv2.dilate(gray, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9)))
+    ys, xs = np.where((gray == dil) & (gray > 200))
+    for y, x in zip(ys, xs):
+        if x < w * 0.04 or y < h * 0.04 or x >= w * 0.96 or y >= h * 0.96:
             continue
-        clean[cid] = keep
+        ring = gray[y - 11:y + 12, x - 11:x + 12]
+        frac = float((ring < 90).mean())
+        if frac < 0.14 or frac > 0.48 or ring.mean() > 158:
+            continue
+        scored.append((frac, int(x), int(y)))
+    ero = cv2.erode(gray, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9)))
+    ys, xs = np.where((gray == ero) & (gray < 48))
+    for y, x in zip(ys, xs):
+        if x < w * 0.04 or y < h * 0.04 or x >= w * 0.96 or y >= h * 0.96:
+            continue
+        win = gray[y - 13:y + 14, x - 13:x + 14]
+        if np.percentile(win, 72) < 175:
+            continue
+        frac = float((win < 75).mean())
+        if not (0.06 <= frac <= 0.22):
+            continue
+        scored.append((0.3 + frac, int(x), int(y)))
+    scored.sort(reverse=True)
+    kept = []
+    for _, x, y in scored:
+        if any((x - a) ** 2 + (y - b) ** 2 < 18 ** 2 for a, b in kept):
+            continue
+        kept.append((x, y))
+        if len(kept) >= cap:
+            break
+    return np.array(kept, float)
 
+
+def catalog(cid, mag=4.4):
+    ci = CONS.index(cid)
+    rows = [r for r in STARS["s"] if r[5] == ci and r[2] <= mag]
+    if len(rows) < 4:
+        rows = [r for r in STARS["s"] if r[5] == ci][:8]
+    ras = np.array([r[0] * 15.0 for r in rows])
+    decs = np.array([r[1] for r in rows])
+    ra0, dec0 = float(ras.mean()), float(decs.mean())
+    cosd = float(np.cos(np.deg2rad(dec0)))
+    sky = np.stack([(ras - ra0) * cosd, decs - dec0], 1)
+    return sky, rows, ra0, dec0, cosd
+
+
+def match(pix, sky, size):
+    w, h = size
+    rng = np.random.default_rng(7)
+    best = None
+    nsky, npix = len(sky), len(pix)
+    if npix < 8 or nsky < 4:
+        return None
+    for _ in range(10000):
+        i, j = rng.integers(0, nsky, 2)
+        a, b = rng.integers(0, npix, 2)
+        if i == j or a == b:
+            continue
+        p1, p2 = sky[i], sky[j]
+        q1, q2 = pix[a], pix[b]
+        v, wvec = p2 - p1, q2 - q1
+        nv, nw = np.hypot(*v), np.hypot(*wvec)
+        if nv < 0.4 or nw < 60:
+            continue
+        for mirror in (0, 1):
+            vv = np.array([v[0], -v[1] if mirror else v[1]])
+            ang = np.arctan2(wvec[1], wvec[0]) - np.arctan2(vv[1], vv[0])
+            scale = nw / np.hypot(*vv)
+            ca, sa = np.cos(ang) * scale, np.sin(ang) * scale
+            rot = np.array([[ca, -sa], [sa, ca]])
+            flip = np.array([[1.0, 0.0], [0.0, -1.0]]) if mirror else np.eye(2)
+            R = rot @ flip
+            t = q1 - R @ p1
+            proj = sky @ R.T + t
+            if np.ptp(proj[:, 0]) < 0.16 * w or np.ptp(proj[:, 1]) < 0.14 * h:
+                continue
+            d2 = ((proj[:, None, 0] - pix[None, :, 0]) ** 2 + (proj[:, None, 1] - pix[None, :, 1]) ** 2).min(1)
+            inl_mask = d2 < 20 ** 2
+            inl = int(inl_mask.sum())
+            if inl < 4:
+                continue
+            spread = min(float(np.ptp(proj[inl_mask, 0])), float(np.ptp(proj[inl_mask, 1])))
+            if spread < 0.22 * min(w, h):
+                continue
+            med = float(np.median(np.sqrt(d2[inl_mask])))
+            score = inl * spread
+            if best is None or score > best[0]:
+                best = (score, inl, med, proj, d2)
+    return best
+
+
+def affine_from_pairs(src, dst):
+    X = np.c_[src, np.ones(len(src))]
+    ax, *_ = np.linalg.lstsq(X, dst[:, 0], rcond=None)
+    ay, *_ = np.linalg.lstsq(X, dst[:, 1], rcond=None)
+    return ax, ay
+
+
+def apply_aff(ax, ay, sky):
+    X = np.c_[sky, np.ones(len(sky))]
+    return np.stack([X @ ax, X @ ay], 1)
+
+
+def ink(image):
+    arr = np.asarray(image.convert("RGB"), np.float32)
+    lum = 0.299 * arr[:, :, 0] + 0.587 * arr[:, :, 1] + 0.114 * arr[:, :, 2]
+    paper = 112
+    dark = np.clip((paper - lum) / (paper - 18), 0, 1)
+    dark[lum > paper] = 0
+    alpha = (np.clip(dark, 0, 1) ** 0.85 * 255).astype(np.uint8)
+    alpha[alpha < 22] = 0
+    mask = Image.fromarray(alpha, "L").filter(ImageFilter.GaussianBlur(0.45))
+    q = (np.asarray(mask).astype(np.int16) // 18) * 18
+    mask = Image.fromarray(q.astype(np.uint8), "L")
+    white = Image.new("L", mask.size, 255)
+    return Image.merge("RGBA", (white, white, white, mask))
+
+
+def text_clean(value):
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", value or "")).strip()
+
+
+def main():
     OUT.mkdir(parents=True, exist_ok=True)
     index = {}
-    drawers = {
-        "Ori": draw_ori, "Tau": draw_tau, "Gem": draw_gem, "CMa": draw_dog,
-        "UMa": draw_bear, "UMi": draw_bear, "Cas": draw_queen, "Cyg": draw_swan,
-        "Lyr": draw_lyre, "Aql": draw_eagle, "Sco": draw_scorpion, "Sgr": draw_archer,
-        "Leo": draw_lion, "Vir": draw_person, "And": draw_person, "Per": draw_hero,
-        "Peg": draw_horse, "Ari": draw_ram, "Psc": draw_fish, "Aqr": draw_bearer,
-        "Cap": draw_goat, "Lib": draw_scales, "Cnc": draw_crab, "Boo": draw_person,
-        "Her": draw_hero, "Dra": draw_serpent, "Aur": draw_person, "Cep": draw_king,
-        "Cru": draw_cross, "Cen": draw_centaur,
-    }
-    for cid, hips in clean.items():
-        fig = Fig(by_hip, hips)
-        BY = fig
-        drawers[cid](fig)
-        path = OUT / f"{cid.lower()}.webp"
-        fig.save(path)
-        index[cid] = {"file": path.name, "w": SIZE, "h": SIZE, "anchors": fig.anchors}
-        print(cid, path.stat().st_size)
+    credits = {}
+    qa = PLATES / "qa"
+    qa.mkdir(exist_ok=True)
+    for cid, key in JOBS:
+        path = plate_path(key)
+        gray = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+        color = Image.open(path).convert("RGB")
+        pix = detect(gray)
+        sky, rows, *_ = catalog(cid)
+        found = match(pix, sky, gray.shape[::-1])
+        if not found or found[1] < max(4, int(0.28 * len(sky))):
+            print(f"FAIL {cid} det {len(pix)} cat {len(sky)} found {None if not found else found[1]}")
+            continue
+        _, inl, med, proj, d2 = found
+        near = d2 < 20 ** 2
+        spread = min(float(np.ptp(proj[near, 0])), float(np.ptp(proj[near, 1])))
+        if spread < 0.22 * min(gray.shape):
+            print(f"FAIL span {cid} inliers {int(near.sum())} box {np.ptp(proj[near,0]):.0f}x{np.ptp(proj[near,1]):.0f}")
+            continue
+        nn = ((proj[:, None, 0] - pix[None, :, 0]) ** 2 + (proj[:, None, 1] - pix[None, :, 1]) ** 2).argmin(1)
+        snapped = pix[nn]
+        # Spread the anchors across the inlier box instead of clustering on the brightest.
+        idxs = np.where(near)[0]
+        chosen_i = []
+        box_x0, box_x1 = proj[near, 0].min(), proj[near, 0].max()
+        box_y0, box_y1 = proj[near, 1].min(), proj[near, 1].max()
+        corners = [(box_x0, box_y0), (box_x1, box_y0), (box_x0, box_y1), (box_x1, box_y1),
+                   ((box_x0 + box_x1) / 2, (box_y0 + box_y1) / 2)]
+        for cx, cy in corners:
+            left = [i for i in idxs if i not in chosen_i]
+            if not left:
+                break
+            best_i = min(left, key=lambda i: (proj[i, 0] - cx) ** 2 + (proj[i, 1] - cy) ** 2)
+            chosen_i.append(int(best_i))
+        chosen = []
+        for i in chosen_i:
+            x, y = snapped[i]
+            hip = rows[i][4]
+            if any(abs(x - a[0]) < 24 and abs(y - a[1]) < 24 for a in chosen):
+                continue
+            chosen.append((float(x), float(y), int(hip)))
+        if len(chosen) < 3:
+            print("FAIL anchors", cid, "inliers", int(near.sum()))
+            continue
+        vis = proj[near]
+        minx, maxx = float(vis[:, 0].min()), float(vis[:, 0].max())
+        miny, maxy = float(vis[:, 1].min()), float(vis[:, 1].max())
+        pad_x = max(48, (maxx - minx) * 0.42)
+        pad_y = max(48, (maxy - miny) * 0.42)
+        W, H = color.size
+        l = int(max(0, minx - pad_x))
+        t = int(max(0, miny - pad_y))
+        r = int(min(W, maxx + pad_x))
+        b = int(min(H, maxy + pad_y))
+        if r - l < 80 or b - t < 80:
+            print("FAIL crop", cid)
+            continue
+        crop = ink(color.crop((l, t, r, b)))
+        long_side = max(crop.size)
+        scale = 680 / long_side if long_side > 680 else 1
+        if scale != 1:
+            crop = crop.resize((int(crop.size[0] * scale), int(crop.size[1] * scale)), Image.Resampling.LANCZOS)
+        anchors = []
+        for x, y, hip in chosen:
+            anchors.append({
+                "hip": int(hip),
+                "x": round((x - l) * scale, 1),
+                "y": round((y - t) * scale, 1),
+            })
+        dest = OUT / f"{cid.lower()}.webp"
+        crop.save(dest, "WEBP", quality=54, method=4)
+        index[cid] = {"file": dest.name, "w": crop.size[0], "h": crop.size[1], "anchors": anchors}
+        info = META[key]
+        year = 1825
+        m = re.search(r"(1[6-8]\d\d)", text_clean(info.get("date", "")))
+        if m:
+            year = int(m.group(1))
+        credits[cid] = {
+            "source": "Sidney Hall, Urania's Mirror",
+            "title": text_clean(info["title"]).replace("File:", ""),
+            "commons": info["commons"],
+            "author": "Sidney Hall",
+            "year": year,
+            "license": "Public domain",
+        }
+        qa_im = color.copy()
+        dr = ImageDraw.Draw(qa_im)
+        for i, p in enumerate(proj):
+            col = (220, 0, 0) if near[i] else (0, 90, 220)
+            dr.ellipse((p[0] - 7, p[1] - 7, p[0] + 7, p[1] + 7), outline=col, width=2)
+        qa_im.resize((760, int(760 * qa_im.size[1] / qa_im.size[0]))).save(qa / f"{cid}.jpg", quality=72)
+        print(f"{cid:4} inliers {int(near.sum()):2}/{len(rows):2} med {med:4.1f} anchors {len(anchors)} bytes {dest.stat().st_size}")
+
     (OUT / "index.json").write_text(json.dumps(index))
-    credits = {
-        "note": "Silhouettes drawn for this site and dedicated to the public domain. They are not copied from a printed atlas.",
-        "license": "CC0-1.0",
-        "figures": {cid: {"source": "Original drawing", "author": "Nightglass", "year": 2026, "license": "CC0-1.0"} for cid in index},
-    }
-    (OUT / "credits.json").write_text(json.dumps(credits, indent=2))
-    print("total", sum(p.stat().st_size for p in OUT.glob("*.webp")))
-
-
-def draw_ori(f):
-    bet, bel, rig, sai = f.at(27989), f.at(25336), f.at(24436), f.at(27366)
-    shoulders = f.blend(bet, bel, 0.5)
-    feet = f.blend(rig, sai, 0.5)
-    person(f, shoulders, feet, bet, f.blend(bet, shoulders, -1.3), f.blend(bel, shoulders, -0.8))
-    f.ell(f.blend(bet, rig, 0.55), 1.3, 2.2)
-
-
-def draw_tau(f):
-    face = f.at(21421)
-    horn = f.at(25428)
-    f.ell(face, 3.2, 2.4)
-    f.stroke(face, horn, 0.9)
-    f.ell(horn, 1.1, 0.7)
-    if 20889 in f.raw:
-        f.stroke(face, f.at(20889), 0.7)
-    f.ell(f.blend(face, horn, -0.4), 1.4, 1.0)
-
-
-def draw_gem(f):
-    a, b = f.at(37826), f.at(36850)
-    person(f, a, f.blend(a, b, 1.8), a, f.blend(a, b, -0.6), None)
-    person(f, b, f.blend(b, a, 1.8), b, None, f.blend(b, a, -0.5))
-
-
-def draw_dog(f):
-    nose, hip = f.at(32349), f.at(33579)
-    f.ell(f.blend(nose, hip, 0.45), 3.5, 2.0)
-    f.ell(nose, 1.5, 1.2)
-    f.stroke(hip, f.blend(hip, nose, -0.7), 0.6)
-
-
-def draw_bear(f):
-    hips = list(f.raw.values())
-    north = max(hips, key=lambda p: p[1])
-    south = min(hips, key=lambda p: p[1])
-    f.ell(f.blend(north, south, 0.4), 4.5, 2.4)
-    f.ell(north, 1.8, 1.5)
-    f.stroke(south, f.blend(south, north, -0.35), 0.5)
-
-
-def draw_queen(f):
-    pts = list(f.raw.values())
-    c = (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
-    f.ell(c, 4, 2.2)
-    f.ell((c[0], c[1] + 2.5), 1.3, 1.4)
-
-
-def draw_swan(f):
-    body = f.at(100453) if 100453 in f.raw else list(f.raw.values())[0]
-    tail = f.at(102098) if 102098 in f.raw else body
-    wing = f.at(97165) if 97165 in f.raw else body
-    f.ell(body, 2.2, 1.4)
-    f.stroke(body, tail, 0.8)
-    f.stroke(body, wing, 0.7)
-    f.ell(tail, 0.9, 0.6)
-
-
-def draw_lyre(f):
-    pts = list(f.raw.values())
-    c = (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
-    f.ell(c, 2.2, 3.0)
-    f.stroke((c[0] - 1.5, c[1] + 2), (c[0] + 1.5, c[1] + 2), 0.4)
-
-
-def draw_eagle(f):
-    body = f.at(97649)
-    wing = f.at(97278) if 97278 in f.raw else body
-    f.ell(body, 1.6, 2.4)
-    f.stroke(body, wing, 0.8)
-    f.ell(f.blend(body, wing, 1.3), 0.8, 0.6)
-
-
-def draw_scorpion(f):
-    pts = sorted(f.raw.values(), key=lambda p: p[0])
-    for a, b in zip(pts, pts[1:]):
-        f.stroke(a, b, 0.9)
-    f.ell(pts[0], 1.4, 1.0)
-    f.ell(pts[-1], 0.8, 0.8)
-
-
-def draw_archer(f):
-    pts = list(f.raw.values())
-    c = (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
-    f.ell(c, 3.2, 2.6)
-    f.ell((c[0], c[1] + 2.2), 1.2, 1.3)
-    f.stroke((c[0] - 2, c[1] + 1), (c[0] + 2.4, c[1] + 2.4), 0.45)
-
-
-def draw_lion(f):
-    head = f.at(49669)
-    hip = f.at(57632) if 57632 in f.raw else f.at(50583)
-    f.ell(f.blend(head, hip, 0.4), 4.2, 2.2)
-    f.ell(head, 1.8, 1.5)
-    f.stroke(hip, f.blend(hip, head, -0.4), 0.6)
-
-
-def draw_person(f):
-    pts = list(f.raw.values())
-    north = max(pts, key=lambda p: p[1])
-    south = min(pts, key=lambda p: p[1])
-    person(f, north, south)
-
-
-def draw_hero(f):
-    pts = list(f.raw.values())
-    north = max(pts, key=lambda p: p[1])
-    south = min(pts, key=lambda p: p[1])
-    person(f, north, south, north, f.blend(north, south, -0.8), None)
-
-
-def draw_horse(f):
-    pts = list(f.raw.values())
-    c = (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
-    f.ell(c, 4.0, 2.6)
-    east = max(pts, key=lambda p: p[0])
-    f.ell(east, 1.6, 1.3)
-    f.stroke(c, f.blend(c, east, 1.5), 0.5)
-
-
-def draw_ram(f):
-    pts = list(f.raw.values())
-    c = (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
-    f.ell(c, 2.4, 1.6)
-    f.stroke((c[0] - 1, c[1] + 1), (c[0] - 2.4, c[1] + 2.2), 0.45)
-    f.stroke((c[0] + 1, c[1] + 1), (c[0] + 2.4, c[1] + 2.2), 0.45)
-
-
-def draw_fish(f):
-    pts = list(f.raw.values())
-    for p in pts:
-        f.ell(p, 1.8, 0.9)
-    if len(pts) >= 2:
-        f.stroke(pts[0], pts[-1], 0.35)
-
-
-def draw_bearer(f):
-    pts = list(f.raw.values())
-    north = max(pts, key=lambda p: p[1])
-    south = min(pts, key=lambda p: p[1])
-    person(f, north, south)
-    f.stroke(south, f.blend(south, north, -0.5), 0.4)
-
-
-def draw_goat(f):
-    pts = list(f.raw.values())
-    c = (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
-    f.ell(c, 2.8, 1.7)
-    f.stroke((c[0] - 0.6, c[1] + 1.2), (c[0] - 1.8, c[1] + 2.6), 0.4)
-    f.stroke((c[0] + 0.6, c[1] + 1.2), (c[0] + 1.8, c[1] + 2.6), 0.4)
-
-
-def draw_scales(f):
-    pts = list(f.raw.values())
-    top = max(pts, key=lambda p: p[1])
-    f.stroke((top[0] - 2.5, top[1]), (top[0] + 2.5, top[1]), 0.35)
-    f.ell((top[0] - 2.2, top[1] - 1.4), 1.1, 0.7)
-    f.ell((top[0] + 2.2, top[1] - 1.4), 1.1, 0.7)
-    f.stroke(top, (top[0], top[1] - 1.6), 0.3)
-
-
-def draw_crab(f):
-    pts = list(f.raw.values())
-    c = (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
-    f.ell(c, 2.2, 1.5)
-    f.stroke((c[0] - 1.5, c[1] + 0.8), (c[0] - 3, c[1] + 2), 0.4)
-    f.stroke((c[0] + 1.5, c[1] + 0.8), (c[0] + 3, c[1] + 2), 0.4)
-
-
-def draw_serpent(f):
-    pts = sorted(f.raw.values(), key=lambda p: p[0])
-    for a, b in zip(pts, pts[1:]):
-        f.stroke(a, b, 1.1)
-    f.ell(pts[-1], 1.2, 0.9)
-
-
-def draw_king(f):
-    pts = list(f.raw.values())
-    c = (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
-    f.poly([(c[0] - 2, c[1] - 2), (c[0] + 2, c[1] - 2), (c[0] + 2.6, c[1] + 2), (c[0] - 2.6, c[1] + 2)])
-    f.ell((c[0], c[1] + 2.6), 1.1, 1.2)
-
-
-def draw_cross(f):
-    pts = list(f.raw.values())
-    c = (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
-    north = max(pts, key=lambda p: p[1])
-    south = min(pts, key=lambda p: p[1])
-    east = max(pts, key=lambda p: p[0])
-    west = min(pts, key=lambda p: p[0])
-    f.stroke(north, south, 0.9)
-    f.stroke(east, west, 0.9)
-    f.ell(c, 0.7, 0.7)
-
-
-def draw_centaur(f):
-    pts = list(f.raw.values())
-    c = (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
-    f.ell(c, 3.4, 2.0)
-    f.ell((c[0] + 1.5, c[1] + 2.2), 1.2, 1.4)
+    (OUT / "credits.json").write_text(json.dumps({
+        "note": "Figure plates are public-domain engravings from Sidney Hall's Urania's Mirror (1825), scanned on Wikimedia Commons. Each file is cropped to one figure and turned into light lines on a clear ground. They are not copied from a software atlas.",
+        "license": "Public domain",
+        "figures": credits,
+    }, indent=2))
+    total = sum(p.stat().st_size for p in OUT.glob("*.webp"))
+    print("figures", len(index), "bytes", total)
 
 
 if __name__ == "__main__":
-    build()
+    main()

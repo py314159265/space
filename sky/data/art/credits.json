@@ -1,186 +1,238 @@
 {
-  "note": "Silhouettes drawn for this site and dedicated to the public domain. They are not copied from a printed atlas.",
-  "license": "CC0-1.0",
+  "note": "Figure plates are public-domain engravings from Sidney Hall's Urania's Mirror (1825), scanned on Wikimedia Commons. Each file is cropped to one figure and turned into light lines on a clear ground. They are not copied from a software atlas.",
+  "license": "Public domain",
   "figures": {
     "Ori": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Orion (best currently available version - 2014).jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Orion_(best_currently_available_version_-_2014).jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "Tau": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Taurus.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Taurus.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "Gem": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Gemini.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Gemini.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "CMa": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Canis Major, Lepus, Columba Noachi & Cela Sculptoris.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Canis_Major,_Lepus,_Columba_Noachi_%26_Cela_Sculptoris.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "UMa": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Ursa Major.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Ursa_Major.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "UMi": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Draco and Ursa Minor.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Draco_and_Ursa_Minor.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "Cas": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Cassiopeia (image right side up).jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Cassiopeia_(image_right_side_up).jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "Cyg": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Lacerta, Cygnus, Lyra, Vulpecula and Anser.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Lacerta,_Cygnus,_Lyra,_Vulpecula_and_Anser.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "Lyr": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Lacerta, Cygnus, Lyra, Vulpecula and Anser.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Lacerta,_Cygnus,_Lyra,_Vulpecula_and_Anser.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "Aql": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Delphinus, Sagitta, Aquila, and Antinous.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Delphinus,_Sagitta,_Aquila,_and_Antinous.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "Sco": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Scorpio.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Scorpio.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "Sgr": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Sagittarius and Corona Australis, Microscopium, and Telescopium.png",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Sagittarius_and_Corona_Australis,_Microscopium,_and_Telescopium.png",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "Leo": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Leo Major and Leo Minor.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Leo_Major_and_Leo_Minor.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "Vir": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Virgo.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Virgo.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "And": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Gloria Frederici, Andromeda, and Triangula.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Gloria_Frederici,_Andromeda,_and_Triangula.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "Per": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Perseus.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Perseus.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "Peg": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Pegasus and Equuleus (best currently available version - 2014).jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Pegasus_and_Equuleus_(best_currently_available_version_-_2014).jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "Ari": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Aries and Musca Borealis.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Aries_and_Musca_Borealis.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "Psc": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Pisces.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Pisces.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "Aqr": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Aquarius, Piscis Australis & Ballon Aerostatique.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Aquarius,_Piscis_Australis_%26_Ballon_Aerostatique.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "Cap": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Capricornus.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Capricornus.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "Lib": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Libra.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Libra.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "Cnc": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Cancer.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Cancer.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "Boo": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Bootes, Canes Venatici, Coma Berenices, and Quadrans Muralis.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Bootes,_Canes_Venatici,_Coma_Berenices,_and_Quadrans_Muralis.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "Her": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Hercules and Corona Borealis.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Hercules_and_Corona_Borealis.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "Dra": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Draco and Ursa Minor.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Draco_and_Ursa_Minor.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "Aur": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Auriga.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Auriga.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "Cep": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
-    },
-    "Cru": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Cepheus.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Cepheus.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     },
     "Cen": {
-      "source": "Original drawing",
-      "author": "Nightglass",
-      "year": 2026,
-      "license": "CC0-1.0"
+      "source": "Sidney Hall, Urania's Mirror",
+      "title": "Sidney Hall - Urania's Mirror - Noctua, Corvus, Crater, Sextans Urani\u00e6, Hydra, Felis, Lupus, Centaurus, Antlia Pneumatica, Argo Navis, and Pyxis Nautica.jpg",
+      "commons": "https://commons.wikimedia.org/wiki/File:Sidney_Hall_-_Urania%27s_Mirror_-_Noctua,_Corvus,_Crater,_Sextans_Urani%C3%A6,_Hydra,_Felis,_Lupus,_Centaurus,_Antlia_Pneumatica,_Argo_Navis,_and_Pyxis_Nautica.jpg",
+      "author": "Sidney Hall",
+      "year": 1825,
+      "license": "Public domain"
     }
   }
 }

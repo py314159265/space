@@ -12,10 +12,13 @@ Constellation stick figures in sky/data/figures.json are traditional
 patterns written as pairs of catalog stars. They are recorded as
 astronomical facts, not copied from a chart or a software transcription.
 
-Faint figure drawings in sky/data/art/ are original silhouettes made for
-this site and dedicated to the public domain (CC0-1.0). They are not
-copied from a printed star atlas. Each figure is anchored to catalog
-stars so it follows the sky. Sources are listed in sky/data/art/credits.json.
+Faint figure drawings in sky/data/art/ are taken from Sidney Hall's
+Urania's Mirror (1825), a public-domain set of constellation cards.
+The scans live on Wikimedia Commons. Each file here is one figure,
+with the paper cleared so the engraved lines read as light marks, and
+anchored to catalog stars so the figure follows the sky. The card,
+artist, year, and Commons page for each figure are listed in
+sky/data/art/credits.json.
 
 Short notes in sky/data/constellations.json are original summaries of
 the 88 constellations: names, meanings, area order, and a sentence or
