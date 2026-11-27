@@ -12,6 +12,10 @@ Constellation stick figures in sky/data/figures.json are traditional
 patterns written as pairs of catalog stars. They are recorded as
 astronomical facts, not copied from a chart or a software transcription.
 
+Short notes in sky/data/constellations.json are original summaries of
+the 88 constellations: names, meanings, area order, and a sentence or
+two of background. They are not copied from an encyclopedia article.
+
 Planet, Moon, and Sun positions are computed with astronomy-engine by
 Don Cross, vendored at sky/vendor/astronomy.browser.min.js under the
 MIT license. The license text is in sky/vendor/LICENSE.

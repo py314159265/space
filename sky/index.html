@@ -35,6 +35,10 @@
   <div class="stage" id="stage" hidden>
     <canvas id="sky" aria-label="The sky. Drag to look around in manual mode. Tap an object for details."></canvas>
     <p class="hud" id="hud">● — · Alt —</p>
+    <form class="find" id="find" role="search">
+      <input id="find-q" type="search" placeholder="Find a star or constellation" aria-label="Find a star or constellation" autocomplete="off">
+      <ul id="find-list" hidden></ul>
+    </form>
     <p class="banner" id="banner" hidden>Center a known light in the ring, then tap it.</p>
     <div class="bar">
       <button type="button" class="now" id="now">Now</button>
@@ -56,6 +60,8 @@
         <p class="kicker" id="sheet-type"></p>
         <h2 id="sheet-name"></h2>
         <dl id="sheet-facts"></dl>
+        <p class="sheet-note" id="sheet-note" hidden></p>
+        <p class="sheet-more" id="sheet-more" hidden><a id="sheet-wiki" target="_blank" rel="noopener noreferrer">Search on Wikipedia</a></p>
       </div>
     </aside>
   </div>

@@ -31,6 +31,7 @@
   let stars = [];
   let starByHip = new Map();
   let figures = [];
+  let constMeta = {};
   let cons = [];
   let names = {};
   let live = false;
@@ -461,6 +462,11 @@
       if (s.mag <= 2.1) picks.push({ x: p.x, y: p.y, kind: "star", star: s, hor });
     }
 
+    for (const fig of figures) {
+      const spot = figureSpot(fig, hipPos);
+      if (spot) picks.push({ x: spot.x, y: spot.y, kind: "fig", fig, hor: spot.hor });
+    }
+
     if (showLines) {
       ctx.strokeStyle = lineColor();
       ctx.lineWidth = 1;
@@ -565,7 +571,12 @@
         ra: b.ra,
         dec: b.dec,
       }])),
-      picks: picks.filter((p) => p.kind === "body").map((p) => ({ name: p.body.name, x: p.x, y: p.y })),
+      picks: picks.filter((p) => p.kind === "body" || p.kind === "star" || p.kind === "fig").map((p) => ({
+        kind: p.kind,
+        name: p.kind === "body" ? p.body.name : p.kind === "star" ? (names[p.star.hip] || `HIP ${p.star.hip}`) : p.fig.name,
+        x: p.x,
+        y: p.y,
+      })),
       visible: figures.filter((fig) => {
         if (fig.hip && hipPos.has(fig.hip)) return true;
         return fig.lines.some(([a, b]) => hipPos.has(a) && hipPos.has(b));
@@ -606,7 +617,133 @@
     const H = Math.acos(clamp(cosH, -1, 1)) * RAD / 15;
     return { rise: whenLst(raHours - H, date), set: whenLst(raHours + H, date), transit };
   }
+  function wikiHref(query) {
+    return `https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(query)}`;
+  }
+  function setWiki(query) {
+    const link = $("sheet-wiki");
+    link.href = wikiHref(query);
+    $("sheet-more").hidden = false;
+  }
+  function setNote(text) {
+    const note = $("sheet-note");
+    note.hidden = !text;
+    note.textContent = text || "";
+  }
+  const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  function eveningSpan(raHours) {
+    const sun = (raHours - 9 + 24) % 24;
+    const idx = (2 + Math.round(sun / 2)) % 12;
+    const prev = (idx + 11) % 12;
+    return `${MONTHS[prev]} and ${MONTHS[idx]}`;
+  }
+  function figureMembers(id) {
+    return stars.filter((s) => s.con >= 0 && cons[s.con] === id);
+  }
+  function figureCenter(id) {
+    const members = figureMembers(id);
+    if (!members.length) {
+      const meta = constMeta[id];
+      return meta && meta.ra != null ? { ra: meta.ra, dec: meta.dec } : null;
+    }
+    let x = 0, y = 0, z = 0;
+    for (const s of members) {
+      const ra = s.ra * 15 * DEG;
+      const dec = s.dec * DEG;
+      x += Math.cos(dec) * Math.cos(ra);
+      y += Math.cos(dec) * Math.sin(ra);
+      z += Math.sin(dec);
+    }
+    const dec = Math.asin(clamp(z / members.length, -1, 1)) * RAD;
+    let ra = Math.atan2(y, x) * RAD / 15;
+    if (ra < 0) ra += 24;
+    return { ra, dec };
+  }
+  function figureSpot(fig, hipPos) {
+    let sx = 0, sy = 0, n = 0;
+    if (fig.hip && hipPos.has(fig.hip)) {
+      const p = hipPos.get(fig.hip);
+      sx = p.x; sy = p.y; n = 1;
+    }
+    const seen = new Set();
+    for (const pair of fig.lines) {
+      for (const hip of pair) {
+        if (seen.has(hip)) continue;
+        seen.add(hip);
+        const p = hipPos.get(hip);
+        if (!p) continue;
+        sx += p.x; sy += p.y; n++;
+      }
+    }
+    if (!n) return null;
+    const center = figureCenter(fig.id);
+    const when = nowDate();
+    const hor = center ? eqToHor(center.ra, center.dec, when) : null;
+    return { x: sx / n, y: sy / n, hor };
+  }
+  function viewingLine(dec, ra) {
+    const band = dec > 30 ? "Northern" : dec < -30 ? "Southern" : "Equatorial";
+    const months = eveningSpan(ra);
+    let reach = "";
+    if (Number.isFinite(lat)) {
+      const culmination = 90 - Math.abs(lat - dec);
+      if (culmination < 12) reach = " From your latitude it stays low or hidden.";
+      else if ((lat >= 0 && dec > 0) || (lat < 0 && dec < 0)) reach = " It stands high in your sky then.";
+      else reach = " It stays toward the far horizon from your latitude.";
+    }
+    return `${band} figure. Best in the evening in ${months}.${reach}`;
+  }
+  function fillConstellation(fig) {
+    const meta = constMeta[fig.id];
+    const pleiades = fig.id === "Ple";
+    const center = figureCenter(pleiades ? "Tau" : fig.id) || { ra: 3.8, dec: 24 };
+    const when = nowDate();
+    const hor = eqToHor(center.ra, center.dec, when);
+    const events = dayEvents(center.ra, center.dec, when);
+    const bright = figureMembers(pleiades ? "Tau" : fig.id).sort((a, b) => a.mag - b.mag).slice(0, 5);
+    const brightText = bright.length
+      ? bright.map((s) => `${names[s.hip] || "HIP " + s.hip} ${s.mag.toFixed(2)}`).join(", ")
+      : "None in this bright-star list";
+    $("sheet-type").textContent = pleiades ? "Star cluster" : `${fig.id} · constellation`;
+    $("sheet-name").textContent = pleiades ? "Pleiades" : meta.name;
+    const rows = pleiades
+      ? [
+          ["In", "Taurus"],
+          ["Meaning", "A tight cluster of young stars"],
+          ["Where", viewingLine(center.dec, center.ra)],
+          ["Transits", fmtHours(events.transit)],
+        ]
+      : [
+          ["Genitive", meta.genitive],
+          ["Meaning", meta.meaning],
+          ["Area rank", `${meta.rank} of 88`],
+          ["Where", viewingLine(center.dec, center.ra)],
+          ["Brightest", brightText],
+          ["Deep sky", meta.deep.length ? meta.deep.join("; ") : "—"],
+          ["Altitude", `${(hor.alt * RAD).toFixed(0)}°`],
+          ["Transits", fmtHours(events.transit)],
+        ];
+    const dl = $("sheet-facts");
+    dl.replaceChildren();
+    for (const [k, v] of rows) {
+      const dt = document.createElement("dt");
+      dt.textContent = k;
+      const dd = document.createElement("dd");
+      dd.textContent = v;
+      dl.append(dt, dd);
+    }
+    setNote(pleiades
+      ? "A handful of hot stars still wrapped in the haze of the cloud they formed in, sitting on the bull's shoulder."
+      : meta.note);
+    setWiki(pleiades ? "Pleiades" : `${meta.name} constellation`);
+    $("sheet").hidden = false;
+  }
   async function openSheet(item) {
+    if (item.kind === "fig") {
+      selected = item;
+      fillConstellation(item.fig);
+      return;
+    }
     selected = item;
     const when = nowDate();
     let name, type, con, mag, hor, dist, phase, ra, dec;
@@ -647,6 +784,9 @@
       ["Distance", dist || "—"],
     ];
     if (phase) rows.push(["Phase", phase]);
+    setNote("");
+    if (item.kind === "star") setWiki(name);
+    else $("sheet-more").hidden = true;
     const dl = $("sheet-facts");
     dl.replaceChildren();
     for (const [k, v] of rows) {
@@ -736,6 +876,26 @@
       refreshBodies();
     });
     $("sheet-close").addEventListener("click", () => { $("sheet").hidden = true; });
+    const findQ = $("find-q");
+    const findList = $("find-list");
+    findQ.addEventListener("input", () => renderSearch(findQ.value));
+    findList.addEventListener("click", (event) => {
+      const btn = event.target.closest("button");
+      if (!btn) return;
+      const kind = btn.dataset.kind;
+      if (kind === "fig") {
+        const fig = figures.find((f) => f.id === btn.dataset.id);
+        if (fig) openSheet({ kind: "fig", fig });
+      } else if (kind === "star") {
+        const star = starByHip.get(Number(btn.dataset.hip));
+        if (star) {
+          const hor = eqToHor(star.ra, star.dec, nowDate());
+          openSheet({ kind: "star", star, hor });
+        }
+      }
+      findList.hidden = true;
+      findQ.value = "";
+    });
     document.querySelectorAll(".toggles button").forEach((btn) => {
       btn.addEventListener("click", () => {
         const key = btn.dataset.key;
@@ -758,14 +918,47 @@
     });
   }
 
+  function renderSearch(raw) {
+    const list = $("find-list");
+    const q = raw.trim().toLowerCase();
+    list.replaceChildren();
+    if (q.length < 1) { list.hidden = true; return; }
+    const hits = [];
+    for (const [id, meta] of Object.entries(constMeta)) {
+      const hay = `${meta.name} ${id} ${meta.genitive} ${meta.meaning}`.toLowerCase();
+      if (hay.includes(q)) hits.push({ kind: "fig", id, label: meta.name, note: meta.meaning });
+    }
+    if (q.length >= 3 && ("pleiades".startsWith(q) || "seven sisters".includes(q))) {
+      hits.push({ kind: "fig", id: "Ple", label: "Pleiades", note: "Cluster in Taurus" });
+    }
+    for (const s of stars) {
+      const name = names[s.hip];
+      if (!name || s.mag > 3) continue;
+      if (name.toLowerCase().includes(q)) hits.push({ kind: "star", hip: s.hip, label: name, note: `Magnitude ${s.mag.toFixed(2)}` });
+    }
+    for (const hit of hits.slice(0, 8)) {
+      const li = document.createElement("li");
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.dataset.kind = hit.kind;
+      if (hit.id) btn.dataset.id = hit.id;
+      if (hit.hip) btn.dataset.hip = String(hit.hip);
+      btn.textContent = `${hit.label} — ${hit.note}`;
+      li.append(btn);
+      list.append(li);
+    }
+    list.hidden = list.childElementCount === 0;
+  }
   async function boot() {
     loadStore();
     resize();
     bind();
-    const [starFile, figFile] = await Promise.all([
+    const [starFile, figFile, conFile] = await Promise.all([
       fetch("data/stars.json").then((r) => r.json()),
       fetch("data/figures.json").then((r) => r.json()),
+      fetch("data/constellations.json").then((r) => r.json()),
     ]);
+    constMeta = conFile;
     cons = starFile.con;
     names = starFile.names || {};
     stars = starFile.s.map((row) => ({ ra: row[0], dec: row[1], mag: row[2], bv: row[3], hip: row[4], con: row[5], ly: row[6] || 0 }));
