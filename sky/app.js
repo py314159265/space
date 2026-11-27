@@ -469,7 +469,7 @@
       if (fit) artFits.set(id, fit);
     }
   }
-  function artTriangle(img, fit, screen, i0, i1, i2, alpha) {
+  function artTriangle(g, img, fit, screen, i0, i1, i2) {
     const p0 = screen[i0], p1 = screen[i1], p2 = screen[i2];
     if (!p0 || !p1 || !p2) return;
     const limit = 2.2 * Math.hypot(w, h);
@@ -486,21 +486,22 @@
     const grow = (p) => {
       const dx = p.x - cx, dy = p.y - cy;
       const len = Math.hypot(dx, dy) || 1;
-      return { x: p.x + dx / len * 0.8, y: p.y + dy / len * 0.8 };
+      return { x: p.x + dx / len, y: p.y + dy / len };
     };
     const g0 = grow(p0), g1 = grow(p1), g2 = grow(p2);
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(g0.x, g0.y);
-    ctx.lineTo(g1.x, g1.y);
-    ctx.lineTo(g2.x, g2.y);
-    ctx.closePath();
-    ctx.clip();
-    ctx.setTransform(aff.a * dpr, aff.b * dpr, aff.c * dpr, aff.d * dpr, aff.e * dpr, aff.f * dpr);
-    ctx.globalAlpha = alpha;
-    ctx.drawImage(img, 0, 0);
-    ctx.restore();
+    g.save();
+    g.beginPath();
+    g.moveTo(g0.x, g0.y);
+    g.lineTo(g1.x, g1.y);
+    g.lineTo(g2.x, g2.y);
+    g.closePath();
+    g.clip();
+    g.setTransform(aff.a * dpr, aff.b * dpr, aff.c * dpr, aff.d * dpr, aff.e * dpr, aff.f * dpr);
+    g.globalAlpha = 1;
+    g.drawImage(img, 0, 0);
+    g.restore();
   }
+  let artBoard = null;
   function drawConstellationArt(when, pose) {
     for (const id of Object.keys(artIndex)) {
       const fit = artFits.get(id);
@@ -517,6 +518,15 @@
         const hor = eqToHor(v.ra, v.dec, when);
         return project(hor.az, hor.alt, pose);
       });
+      if (!artBoard || artBoard.width !== canvas.width || artBoard.height !== canvas.height) {
+        artBoard = document.createElement("canvas");
+        artBoard.width = canvas.width;
+        artBoard.height = canvas.height;
+      }
+      const g = artBoard.getContext("2d");
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g.clearRect(0, 0, w, h);
+      g.globalAlpha = 1;
       const cols = fit.cols;
       for (let j = 0; j < fit.n; j++) {
         for (let i = 0; i < fit.n; i++) {
@@ -524,10 +534,14 @@
           const i10 = i00 + 1;
           const i01 = i00 + cols;
           const i11 = i01 + 1;
-          artTriangle(img, fit, screen, i00, i10, i01, alpha);
-          artTriangle(img, fit, screen, i10, i11, i01, alpha);
+          artTriangle(g, img, fit, screen, i00, i10, i01);
+          artTriangle(g, img, fit, screen, i10, i11, i01);
         }
       }
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(artBoard, 0, 0, w, h);
+      ctx.restore();
       if (!showAnchors) continue;
       ctx.save();
       ctx.globalAlpha = 1;
