@@ -87,16 +87,37 @@ h1 {
   max-width: calc(100% - 1.2rem); overflow: hidden; text-overflow: ellipsis;
 }
 #orient-debug {
-  position: absolute; z-index: 5; left: 10px; right: 10px; top: 6.4rem;
+  position: absolute; z-index: 5; left: 10px; right: 10px;
+  top: calc(max(12px, env(safe-area-inset-top)) + 9.2rem);
   margin: 0; padding: 0.55rem 0.7rem; border-radius: 12px;
   border: 1px solid var(--line); background: rgba(7, 11, 18, 0.88);
   color: var(--paper); font: 12px ui-monospace, monospace; white-space: pre-wrap;
   pointer-events: none;
 }
-.banner {
-  position: absolute; top: 3.2rem; left: 50%; transform: translateX(-50%);
+.banner, .guide {
+  position: absolute; z-index: 5; left: 50%; transform: translateX(-50%);
+  top: calc(max(12px, env(safe-area-inset-top)) + 5.7rem);
   margin: 0; width: min(22rem, calc(100% - 1.4rem)); text-align: center;
   color: var(--gold); font-size: 0.92rem;
+}
+.banner {
+  padding: 0.4rem 0.75rem; border-radius: 999px;
+  border: 1px solid var(--line); background: rgba(7, 11, 18, 0.9);
+}
+.banner:not([hidden]) + .guide { top: calc(max(12px, env(safe-area-inset-top)) + 8.4rem); }
+.guide {
+  display: flex; align-items: center; justify-content: center; gap: 0.4rem;
+  pointer-events: none;
+}
+.guide[hidden] { display: none; }
+.guide p {
+  margin: 0; padding: 0.4rem 0.75rem; border-radius: 999px;
+  border: 1px solid var(--line); background: rgba(7, 11, 18, 0.9); color: var(--gold);
+}
+.guide button {
+  pointer-events: auto; width: 1.9rem; height: 1.9rem; border-radius: 999px;
+  border: 1px solid var(--line); background: rgba(7, 11, 18, 0.9);
+  color: var(--paper); font-size: 1.15rem; line-height: 1; cursor: pointer;
 }
 .bar {
   position: absolute; z-index: 2; left: 8px; right: 8px; bottom: max(8px, env(safe-area-inset-bottom));
@@ -117,7 +138,8 @@ h1 {
 .toggles button[aria-pressed="true"] { border-color: var(--gold); color: var(--paper); }
 
 .find {
-  position: absolute; z-index: 4; top: 3.3rem; left: 10px; right: 10px;
+  position: absolute; z-index: 4; left: 10px; right: 10px;
+  top: calc(max(12px, env(safe-area-inset-top)) + 2.55rem);
 }
 .find input {
   width: 100%; border-radius: 999px; border: 1px solid var(--line);
@@ -151,7 +173,8 @@ h1 {
 .sheet dl { display: grid; grid-template-columns: 7.2rem 1fr; gap: 0.22rem 0.6rem; margin: 0; font-size: 0.95rem; }
 .sheet dt { margin: 0; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.72rem; padding-top: 0.2rem; }
 .sheet dd { margin: 0; }
-body.night .gate, body.night .sheet-card, body.night .bar, body.night .hud { background-color: #140000; }
+body.night .gate, body.night .sheet-card, body.night .bar, body.night .hud,
+body.night .banner, body.night .guide p, body.night .guide button { background-color: #140000; }
 @media (min-width: 900px) {
   .bar { left: 50%; right: auto; transform: translateX(-50%); width: min(46rem, calc(100% - 2rem)); }
 }
