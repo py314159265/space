@@ -61,6 +61,8 @@
   const G = 9.80665;
   const gLp = { x: 0, y: 0, z: G };
   const tiltLp = { x: 0, y: 0, z: G };
+  let signs = { x: -1, y: 1, z: 1 };
+  const rawMean = { x: 0, y: 0, z: G, n: 0 };
   const horiz = { x: 0, y: 0 };
   const tiltTarget = { x: 0, y: 0 };
   let lastMotionT = 0;
@@ -199,6 +201,21 @@
     return v;
   }
 
+  function orientationAngle() {
+    if (screen.orientation && Number.isFinite(screen.orientation.angle)) return screen.orientation.angle;
+    if (Number.isFinite(window.orientation)) return window.orientation;
+    return 0;
+  }
+
+  function noteFlat(sample) {
+    if (!calibrating) return;
+    rawMean.n += 1;
+    rawMean.x += (sample.x - rawMean.x) / rawMean.n;
+    rawMean.y += (sample.y - rawMean.y) / rawMean.n;
+    rawMean.z += (sample.z - rawMean.z) / rawMean.n;
+    if (Math.abs(rawMean.z) > 5) signs = Tilt.signsFromFlat(rawMean);
+  }
+
   function onMotion(event) {
     const now = performance.now();
     const dt = lastMotionT ? clamp((now - lastMotionT) / 1000, 0.008, 0.05) : 0.016;
@@ -221,22 +238,25 @@
 
     if (over) return;
 
+    noteFlat(sample);
+    const axes = Tilt.screenAxes(sample, signs, orientationAngle());
+    const norm = Tilt.normalize(sample, signs);
     const aG = 1 - Math.exp(-dt * 2 * Math.PI * 0.2);
     const aT = 1 - Math.exp(-dt * 2 * Math.PI * 4);
-    gLp.x += (sample.x - gLp.x) * aG;
-    gLp.y += (sample.y - gLp.y) * aG;
-    gLp.z += (sample.z - gLp.z) * aG;
-    tiltLp.x += (sample.x - tiltLp.x) * aT;
-    tiltLp.y += (sample.y - tiltLp.y) * aT;
-    tiltLp.z += (sample.z - tiltLp.z) * aT;
+    gLp.x += (norm.x - gLp.x) * aG;
+    gLp.y += (norm.y - gLp.y) * aG;
+    gLp.z += (norm.z - gLp.z) * aG;
+    tiltLp.x += (axes.x - tiltLp.x) * aT;
+    tiltLp.y += (axes.y - tiltLp.y) * aT;
+    tiltLp.z += (axes.z - tiltLp.z) * aT;
     grav = { x: tiltLp.x, y: tiltLp.y, z: tiltLp.z };
     gotMotion = true;
     if (!(useMouse && mouse.on)) useMouse = false;
 
     const lin = {
-      x: sample.x - gLp.x,
-      y: sample.y - gLp.y,
-      z: sample.z - gLp.z,
+      x: norm.x - gLp.x,
+      y: norm.y - gLp.y,
+      z: norm.z - gLp.z,
     };
     const gm = Math.hypot(gLp.x, gLp.y, gLp.z) || G;
     const vert = (lin.x * gLp.x + lin.y * gLp.y + lin.z * gLp.z) / gm;
@@ -244,16 +264,18 @@
     const uy = gLp.y / gm;
     const hx = lin.x - vert * ux;
     const hy = lin.y - vert * uy;
-    const absTilt = Math.acos(clamp(Math.abs(sample.z) / (Math.hypot(sample.x, sample.y, sample.z) || 1), 0, 1));
+    const absTilt = Math.acos(clamp(Math.abs(axes.z) / (Math.hypot(axes.x, axes.y, axes.z) || 1), 0, 1));
     const relTilt = angleBetween(tiltLp, level);
     const limit = cfg().tilt * Math.PI / 180;
-    if (playing && !calibrating && (absTilt > 45 * Math.PI / 180 || relTilt > limit || Math.hypot(lin.x, lin.y, lin.z) > cfg().jolt * G)) {
+    const linMag = Math.hypot(lin.x, lin.y, lin.z);
+    if (playing && !calibrating && (absTilt > 45 * Math.PI / 180 || relTilt > limit || linMag > cfg().jolt * G)) {
+      sensor.why = absTilt > 45 * Math.PI / 180 ? "gross" : relTilt > limit ? "tilt" : "jolt";
       detector.disarm();
-      spillNow(Math.atan2(sample.y, sample.x));
+      spillNow(Math.atan2(axes.y, axes.x));
       return;
     }
     const counting = playing && !calibrating && !over;
-    const sensed = detector.push(sample, dt, now, counting);
+    const sensed = detector.push(norm, dt, now, counting);
     lastSense = sensed;
     sensor.channel = sensed.channel;
     sensor.vert = sensed.vertical;
@@ -267,8 +289,9 @@
     }
     if (over) return;
     const driveA = 1 - Math.exp(-dt * 2 * Math.PI * 6);
-    horiz.x += (hx / G - horiz.x) * driveA;
-    horiz.y += (hy / G - horiz.y) * driveA;
+    const spun = Tilt.rotate(hx, hy, orientationAngle());
+    horiz.x += (spun.x / G - horiz.x) * driveA;
+    horiz.y += (spun.y / G - horiz.y) * driveA;
     const gz = Math.abs(tiltLp.z) + 0.4;
     tiltTarget.x = Math.atan2(tiltLp.x - level.x, gz);
     tiltTarget.y = Math.atan2(tiltLp.y - level.y, gz);
@@ -284,19 +307,25 @@
     sensor.field = "orientation";
     const beta = event.beta * Math.PI / 180;
     const gamma = (event.gamma || 0) * Math.PI / 180;
-    grav = { x: Math.sin(gamma) * G, y: Math.sin(beta) * G, z: Math.cos(beta) * G };
-    tiltLp.x = grav.x;
-    tiltLp.y = grav.y;
-    tiltLp.z = grav.z;
-    const gz = Math.abs(grav.z) + 0.4;
-    tiltTarget.x = Math.atan2(grav.x - level.x, gz);
-    tiltTarget.y = Math.atan2(grav.y - level.y, gz);
+    const raw = {
+      x: -Math.sin(gamma) * G,
+      y: -Math.sin(beta) * Math.cos(gamma) * G,
+      z: Math.cos(beta) * Math.cos(gamma) * G,
+    };
+    const axes = Tilt.screenAxes(raw, signs, orientationAngle());
+    tiltLp.x = axes.x;
+    tiltLp.y = axes.y;
+    tiltLp.z = axes.z;
+    grav = { x: axes.x, y: axes.y, z: axes.z };
+    const gz = Math.abs(axes.z) + 0.4;
+    tiltTarget.x = Math.atan2(axes.x - level.x, gz);
+    tiltTarget.y = Math.atan2(axes.y - level.y, gz);
     if (over || !playing || calibrating) return;
-    const absTilt = Math.acos(clamp(Math.abs(grav.z) / (Math.hypot(grav.x, grav.y, grav.z) || 1), 0, 1));
-    const relTilt = angleBetween(grav, level);
+    const absTilt = Math.acos(clamp(Math.abs(axes.z) / (Math.hypot(axes.x, axes.y, axes.z) || 1), 0, 1));
+    const relTilt = angleBetween(axes, level);
     if (absTilt > 45 * Math.PI / 180 || relTilt > cfg().tilt * Math.PI / 180) {
       detector.disarm();
-      spillNow(Math.atan2(grav.y, grav.x));
+      spillNow(Math.atan2(axes.y, axes.x));
     }
   }
 
@@ -321,12 +350,6 @@
     for (let i = ripples.length - 1; i >= 0; i--) {
       ripples[i].t += dt;
       if (ripples[i].t > 0.6) ripples.splice(i, 1);
-    }
-    const amp = Math.hypot(surf.x, surf.y);
-    const limit = cfg().tilt * Math.PI / 180;
-    if (playing && !calibrating && !over && amp > limit + 0.02) {
-      detector.disarm();
-      spillNow(Math.atan2(surf.y, surf.x));
     }
     for (let i = drops.length - 1; i >= 0; i--) {
       const d = drops[i];
@@ -607,8 +630,8 @@
     const fx = clamp(ax / limit, -1.05, 1.05);
     const fy = clamp(ay / limit, -1.05, 1.05);
     const dot = $("bubble-dot");
-    dot.style.left = (50 + fx * 38) + "%";
-    dot.style.top = (50 + fy * 38) + "%";
+    dot.style.left = (50 - fx * 38) + "%";
+    dot.style.top = (50 - fy * 38) + "%";
     $("bubble").classList.toggle("hot", Math.hypot(fx, fy) > 0.82);
   }
 
@@ -671,6 +694,7 @@
       vert: sensor.vert,
       threshold: sensor.threshold,
       slope: Math.hypot(surf.x, surf.y),
+      why: sensor.why || "",
       cup: { x: cup.x, y: cup.y, r: cup.r },
       surf: { x: surf.x, y: surf.y },
     };
@@ -679,6 +703,9 @@
       $("debug-text").textContent = [
         `field ${sensor.field}`,
         `channel ${sensor.channel}`,
+        `gx ${(tiltLp.x / G).toFixed(3)} g`,
+        `gy ${(tiltLp.y / G).toFixed(3)} g`,
+        `sign ${signs.x},${signs.y},${signs.z}`,
         `vert ${(sensor.vert / G).toFixed(3)} g`,
         `threshold ${(sensor.threshold / G).toFixed(3)} g`,
         `steps ${steps}`,
@@ -715,6 +742,11 @@
     try { await screen.orientation?.lock?.("portrait"); } catch (err) { /* optional */ }
     steps = 0;
     over = false;
+    signs = { x: -1, y: 1, z: 1 };
+    rawMean.x = 0;
+    rawMean.y = 0;
+    rawMean.z = G;
+    rawMean.n = 0;
     sensorSteps = 0;
     detector = StepDetect.createDetector();
     lastSense = null;
