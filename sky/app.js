@@ -4,7 +4,6 @@
   const RAD = 180 / Math.PI;
   const STORE_LOC = "nightglass-loc";
   const STORE_CAL = "nightglass-cal";
-  const STORE_ART = "nightglass-art";
   const STORE_LINES = "nightglass-lines";
   const LINE_LABEL = { standard: "Standard", figure: "Figure", off: "Off" };
   const DEFAULT_LOC = { lat: 34.08, lon: -118.07 };
@@ -36,7 +35,6 @@
   const canvas = $("sky");
   const ctx = canvas.getContext("2d", { alpha: false });
   const params = new URLSearchParams(location.search);
-  const showAnchors = params.get("anchors") === "1";
 
   let stars = [];
   let starByHip = new Map();
@@ -51,9 +49,6 @@
   let showLines = true;
   let showLabels = true;
   let showGrid = false;
-  let showArt = true;
-  let artIndex = {};
-  const artImages = new Map();
   let calibrating = false;
   let lat = DEFAULT_LOC.lat;
   let lon = DEFAULT_LOC.lon;
@@ -91,7 +86,7 @@
       }
       const cal = JSON.parse(localStorage.getItem(STORE_CAL) || "null");
       if (cal && Number.isFinite(cal.offset)) headingOffset = cal.offset;
-      if (localStorage.getItem(STORE_ART) === "0") showArt = false;
+      // A leftover nightglass-art value from the removed figure plates is ignored.
       const savedLines = localStorage.getItem(STORE_LINES);
       if (savedLines === "standard" || savedLines === "figure" || savedLines === "off") lineMode = savedLines;
       showLines = lineMode !== "off";
@@ -451,276 +446,9 @@
     ctx.restore();
   }
 
-  function loadArt(id) {
-    const meta = artIndex[id];
-    if (!meta) return null;
-    let rec = artImages.get(id);
-    if (!rec) {
-      rec = { img: new Image(), ready: false, red: null };
-      rec.img.onload = () => {
-        rec.ready = true;
-        const board = document.createElement("canvas");
-        board.width = rec.img.width;
-        board.height = rec.img.height;
-        const g = board.getContext("2d");
-        g.drawImage(rec.img, 0, 0);
-        g.globalCompositeOperation = "source-in";
-        g.fillStyle = "#ff3b3b";
-        g.fillRect(0, 0, board.width, board.height);
-        rec.red = board;
-      };
-      rec.img.src = asset(`data/art/${meta.file}`);
-      artImages.set(id, rec);
-    }
-    return rec.ready ? rec : null;
-  }
-  const artFits = new Map();
-  function buildArtFits() {
-    artFits.clear();
-    for (const id of Object.keys(artIndex)) {
-      const fit = ArtMesh.prepare(artIndex[id], (hip) => starByHip.get(hip) || null);
-      if (fit) artFits.set(id, fit);
-    }
-  }
-  let artGL = null;
-  let artGLFailed = false;
-  let artWhy = "not started";
-  let artBoard = null;
-  const artVerts = new Float32Array(8 * 8 * 2 * 3 * 4);
-  let artStamp = 0;
-  let artHold = null;
-  let artMs = 0;
-  let artPath = "idle";
-  let artReuse = false;
   let frameMs = 0;
   let fpsRead = 0;
   let frameStamp = 0;
-  function artLayer() {
-    if (artGL && artGL.lost) {
-      artGLFailed = true;
-      artGL = null;
-      artWhy = "WebGL context lost";
-    }
-    if (artGLFailed) return null;
-    if (artGL) return artGL;
-    try {
-      artGL = window.ArtGL ? ArtGL.create() : null;
-    } catch (err) {
-      artGL = null;
-      artWhy = err && err.message ? err.message : "WebGL init threw";
-    }
-    if (!artGL) {
-      artGLFailed = true;
-      artWhy = (window.ArtGL && ArtGL.lastError) || artWhy || "no WebGL context";
-      return null;
-    }
-    artWhy = artGL.renderer || "webgl";
-    return artGL;
-  }
-  function paintArtCanvas(img, fit, screen, alpha) {
-    if (!artBoard) artBoard = document.createElement("canvas");
-    if (artBoard.width !== w || artBoard.height !== h) {
-      artBoard.width = Math.max(1, w);
-      artBoard.height = Math.max(1, h);
-    }
-    const g = artBoard.getContext("2d");
-    g.setTransform(1, 0, 0, 1, 0, 0);
-    g.clearRect(0, 0, artBoard.width, artBoard.height);
-    const cols = fit.cols;
-    const step = 2;
-    for (let j = 0; j < fit.n; j += step) {
-      for (let i = 0; i < fit.n; i += step) {
-        const i00 = j * cols + i;
-        const i10 = i00 + step;
-        const i01 = i00 + cols * step;
-        const i11 = i01 + step;
-        paintArtTri(g, img, fit, screen, i00, i10, i01);
-        paintArtTri(g, img, fit, screen, i10, i11, i01);
-      }
-    }
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.drawImage(artBoard, 0, 0, w, h);
-    ctx.restore();
-  }
-  function paintArtTri(g, img, fit, screen, i0, i1, i2) {
-    const p0 = screen[i0], p1 = screen[i1], p2 = screen[i2];
-    if (!p0 || !p1 || !p2) return;
-    const limit = 2.2 * Math.hypot(w, h);
-    if (Math.hypot(p0.x - w / 2, p0.y - h / 2) > limit) return;
-    if (Math.hypot(p1.x - w / 2, p1.y - h / 2) > limit) return;
-    if (Math.hypot(p2.x - w / 2, p2.y - h / 2) > limit) return;
-    const src = [fit.verts[i0], fit.verts[i1], fit.verts[i2]].map((v) => ({ x: v.u, y: v.v }));
-    const aff = ArtMesh.solveAffine(src, [p0, p1, p2]);
-    if (!aff) return;
-    g.save();
-    g.beginPath();
-    g.moveTo(p0.x, p0.y);
-    g.lineTo(p1.x, p1.y);
-    g.lineTo(p2.x, p2.y);
-    g.closePath();
-    g.clip();
-    g.setTransform(aff.a, aff.b, aff.c, aff.d, aff.e, aff.f);
-    g.drawImage(img, 0, 0);
-    g.restore();
-  }
-  function artOnScreen(screen) {
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    let n = 0, zSum = 0;
-    for (const p of screen) {
-      if (!p) continue;
-      n++;
-      zSum += p.z;
-      if (p.x < minX) minX = p.x;
-      if (p.y < minY) minY = p.y;
-      if (p.x > maxX) maxX = p.x;
-      if (p.y > maxY) maxY = p.y;
-    }
-    if (n < 3) return null;
-    if (maxX < -40 || minX > w + 40 || maxY < -40 || minY > h + 40) return null;
-    const span = Math.max(maxX - minX, maxY - minY);
-    return { span, meanZ: zSum / n };
-  }
-  function pushArtTri(fit, screen, artDpr, n, i0, i1, i2) {
-    const p0 = screen[i0], p1 = screen[i1], p2 = screen[i2];
-    if (!p0 || !p1 || !p2) return n;
-    const limit = 2.2 * Math.hypot(w, h);
-    if (Math.hypot(p0.x - w / 2, p0.y - h / 2) > limit) return n;
-    if (Math.hypot(p1.x - w / 2, p1.y - h / 2) > limit) return n;
-    if (Math.hypot(p2.x - w / 2, p2.y - h / 2) > limit) return n;
-    const minX = Math.min(p0.x, p1.x, p2.x), maxX = Math.max(p0.x, p1.x, p2.x);
-    const minY = Math.min(p0.y, p1.y, p2.y), maxY = Math.max(p0.y, p1.y, p2.y);
-    if (maxX < -30 || minX > w + 30 || maxY < -30 || minY > h + 30) return n;
-    const v0 = fit.verts[i0], v1 = fit.verts[i1], v2 = fit.verts[i2];
-    const put = (p, u, v) => {
-      const o = n * 4;
-      artVerts[o] = p.x * artDpr;
-      artVerts[o + 1] = p.y * artDpr;
-      artVerts[o + 2] = u / fit.w;
-      artVerts[o + 3] = v / fit.h;
-      return n + 1;
-    };
-    n = put(p0, v0.u, v0.v);
-    n = put(p1, v1.u, v1.v);
-    n = put(p2, v2.u, v2.v);
-    return n;
-  }
-  function blitHeldArt(pose) {
-    if (!artHold || !artGL) return false;
-    const to = artHold.dirs.map((p) => project(p.az, p.alt, pose));
-    if (to.some((p) => !p)) return false;
-    const aff = ArtMesh.solveAffine(artHold.from, to);
-    if (!aff) return false;
-    const det = aff.a * aff.d - aff.b * aff.c;
-    if (det < 0.35 || det > 3) return false;
-    ctx.save();
-    ctx.setTransform(aff.a * dpr, aff.b * dpr, aff.c * dpr, aff.d * dpr, aff.e * dpr, aff.f * dpr);
-    ctx.drawImage(artGL.canvas, 0, 0, w, h);
-    ctx.restore();
-    return true;
-  }
-  function drawConstellationArt(when, pose) {
-    const gl = artLayer();
-    const nowMs = performance.now();
-    if (gl && !showAnchors && artHold && artHold.night === night && nowMs - artStamp < 33 && blitHeldArt(pose)) {
-      artPath = "webgl";
-      artReuse = true;
-      return;
-    }
-    artReuse = false;
-    const artDpr = Math.min(dpr, 1.5);
-    if (gl) gl.begin(w, h, artDpr, night);
-    let drew = false;
-    for (const id of Object.keys(artIndex)) {
-      const fit = artFits.get(id);
-      if (!fit) continue;
-      const rec = loadArt(id);
-      if (!rec) continue;
-      const img = rec.img;
-      let altSum = 0;
-      for (const a of fit.anchors) altSum += eqToHor(a.ra, a.dec, when).alt;
-      const meanAlt = (altSum / fit.anchors.length) * RAD;
-      const alpha = ArtMesh.figureAlpha(meanAlt, fov, night);
-      if (alpha < 0.02) continue;
-      const screen = fit.verts.map((v) => {
-        const hor = eqToHor(v.ra, v.dec, when);
-        return project(hor.az, hor.alt, pose);
-      });
-      const box = artOnScreen(screen);
-      if (!box) continue;
-      const step = box.span < 220 || box.meanZ < 0.5 ? 2 : 1;
-      const cols = fit.cols;
-      let count = 0;
-      for (let j = 0; j < fit.n; j += step) {
-        for (let i = 0; i < fit.n; i += step) {
-          const i00 = j * cols + i;
-          const i10 = i00 + step;
-          const i01 = i00 + cols * step;
-          const i11 = i01 + step;
-          count = pushArtTri(fit, screen, artDpr, count, i00, i10, i01);
-          count = pushArtTri(fit, screen, artDpr, count, i10, i11, i01);
-        }
-      }
-      if (!count) continue;
-      if (!gl) {
-        paintArtCanvas(img, fit, screen, alpha);
-        drew = true;
-        continue;
-      }
-      gl.mesh(img, alpha, artVerts, count);
-      drew = true;
-    }
-    if (gl && drew) {
-      const shift = 8 * DEG;
-      const dirs = [
-        { az: pose.az, alt: pose.alt },
-        { az: normAng(pose.az + shift), alt: pose.alt },
-        { az: pose.az, alt: Math.min(pose.alt + shift, 80 * DEG) },
-      ];
-      const from = dirs.map((p) => project(p.az, p.alt, pose));
-      if (from.every(Boolean)) artHold = { dirs, from, night };
-      artStamp = nowMs;
-      artPath = "webgl";
-      artWhy = gl.renderer || artWhy;
-      ctx.drawImage(gl.canvas, 0, 0, w, h);
-    } else if (!gl && drew) {
-      artPath = "canvas";
-    } else {
-      artPath = gl ? "webgl" : "canvas";
-    }
-    if (!showAnchors) return;
-    ctx.save();
-    ctx.globalAlpha = 1;
-    ctx.lineWidth = 1.5;
-    ctx.strokeStyle = "#3dffb0";
-    ctx.fillStyle = "#3dffb0";
-    ctx.font = "600 11px Source Sans 3, sans-serif";
-    ctx.textAlign = "left";
-    for (const id of Object.keys(artIndex)) {
-      const fit = artFits.get(id);
-      if (!fit) continue;
-      for (const a of fit.anchors) {
-        const sky = ArtMesh.anchorSky(fit, a);
-        const meshHor = eqToHor(sky.ra, sky.dec, when);
-        const starHor = eqToHor(a.ra, a.dec, when);
-        const mesh = project(meshHor.az, meshHor.alt, pose);
-        const star = project(starHor.az, starHor.alt, pose);
-        if (!mesh || !star) continue;
-        ctx.beginPath();
-        ctx.arc(mesh.x, mesh.y, 5, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(mesh.x - 8, mesh.y); ctx.lineTo(mesh.x + 8, mesh.y);
-        ctx.moveTo(mesh.x, mesh.y - 8); ctx.lineTo(mesh.x, mesh.y + 8);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(mesh.x, mesh.y); ctx.lineTo(star.x, star.y);
-        ctx.stroke();
-        ctx.fillText(String(Math.round(Math.hypot(mesh.x - star.x, mesh.y - star.y))), mesh.x + 7, mesh.y - 7);
-      }
-    }
-    ctx.restore();
-  }
 
   function frame() {
     const frameStart = performance.now();
@@ -755,22 +483,6 @@
       hipPos.set(s.hip, p);
       hipAlt.set(s.hip, hor.alt);
       hipHor.set(s.hip, hor);
-    }
-    if (showArt) {
-      const artStart = performance.now();
-      try {
-        drawConstellationArt(when, pose);
-      } catch (err) {
-        artGLFailed = true;
-        artGL = null;
-        artPath = "error";
-        artWhy = err && err.message ? err.message : "art draw failed";
-      }
-      artMs = performance.now() - artStart;
-    } else {
-      artMs = 0;
-      artPath = "off";
-      artReuse = false;
     }
 
     for (const s of stars) {
@@ -883,21 +595,14 @@
     $("hud").textContent = `● ${compassName(pose.az)} ${Math.round(azDeg)}° · Alt ${Math.round(pose.alt * RAD)}°`;
     frameMs = performance.now() - frameStart;
     const frameLog = window.__skyFrameLog || (window.__skyFrameLog = []);
-    const artLog = window.__skyArtLog || (window.__skyArtLog = []);
     frameLog.push(frameMs);
-    artLog.push(artMs);
-    if (frameLog.length > 120) {
-      frameLog.shift();
-      artLog.shift();
-    }
+    if (frameLog.length > 120) frameLog.shift();
     if (debugOn) {
       const d = orientDebug;
       $("orient-debug").hidden = false;
       const lines = [
         `v ${window.NG_VERSION || "—"}`,
         `fps ${fpsRead.toFixed(0)}   frame ${frameMs.toFixed(1)} ms`,
-        `art ${artMs.toFixed(1)} ms   ${artPath}${artReuse ? " held" : ""}`,
-        String(artWhy).slice(0, 72),
       ];
       if (d) lines.push(
         `mode ${d.mode}`,
@@ -918,8 +623,6 @@
       lineMode,
       fps: fpsRead,
       frameMs,
-      artMs,
-      artPath,
       moonPhase,
       phase: phaseName(moonPhase),
       bodies: Object.fromEntries(bodies.filter((b) => b.hor).map((b) => [b.name, {
@@ -1405,8 +1108,6 @@
       findQ.value = "";
     });
     $("guide-cancel").addEventListener("click", clearGuide);
-    const artBtn = document.querySelector('[data-key="art"]');
-    if (artBtn) artBtn.setAttribute("aria-pressed", showArt ? "true" : "false");
     applyLineMode();
     document.querySelectorAll(".toggles button").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -1421,10 +1122,6 @@
         btn.setAttribute("aria-pressed", on ? "true" : "false");
         if (key === "labels") showLabels = on;
         if (key === "grid") showGrid = on;
-        if (key === "art") {
-          showArt = on;
-          localStorage.setItem(STORE_ART, on ? "1" : "0");
-        }
         if (key === "night") { night = on; document.body.classList.toggle("night", on); }
         if (key === "cal") {
           calibrating = on;
@@ -1479,20 +1176,17 @@
     loadStore();
     resize();
     bind();
-    const [starFile, figFile, conFile, artFile, figureFile] = await Promise.all([
+    const [starFile, figFile, conFile, figureFile] = await Promise.all([
       fetch(asset("data/stars.json")).then((r) => r.json()),
       fetch(asset("data/figures.json")).then((r) => r.json()),
       fetch(asset("data/constellations.json")).then((r) => r.json()),
-      fetch(asset("data/art/index.json")).then((r) => r.json()),
       fetch(asset("data/figure-lines.json")).then((r) => r.json()),
     ]);
     constMeta = conFile;
-    artIndex = artFile;
     cons = starFile.con;
     names = starFile.names || {};
     stars = starFile.s.map((row) => ({ ra: row[0], dec: row[1], mag: row[2], bv: row[3], hip: row[4], con: row[5], ly: row[6] || 0 }));
     starByHip = new Map(stars.map((s) => [s.hip, s]));
-    buildArtFits();
     figures = figFile;
     // Original stick figures joined from catalog stars. A constellation
     // without an entry keeps its standard lines.
