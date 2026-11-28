@@ -51,28 +51,57 @@
     return board;
   }
 
+  function obtainContext() {
+    // Firefox for Android rejects some attribute mixes and only answers to
+    // experimental-webgl on older releases. A failed getContext sticks to
+    // that canvas, so each attempt gets a fresh one.
+    const attempts = [
+      ["webgl", { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false, preserveDrawingBuffer: true, failIfMajorPerformanceCaveat: false }],
+      ["webgl", { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false, preserveDrawingBuffer: false, failIfMajorPerformanceCaveat: false }],
+      ["experimental-webgl", { alpha: true, premultipliedAlpha: true, antialias: false, failIfMajorPerformanceCaveat: false }],
+      ["webgl", { alpha: true, failIfMajorPerformanceCaveat: false }],
+    ];
+    const notes = [];
+    if (typeof WebGLRenderingContext === "undefined") {
+      return { canvas: null, gl: null, note: "no WebGLRenderingContext" };
+    }
+    for (const [name, attrs] of attempts) {
+      const canvas = document.createElement("canvas");
+      try {
+        const gl = canvas.getContext(name, attrs);
+        if (gl) return { canvas, gl, note: name };
+        notes.push(name + " null");
+      } catch (err) {
+        notes.push(name + " " + (err && err.message ? err.message : "threw"));
+      }
+    }
+    return { canvas: null, gl: null, note: notes.join("; ") || "no WebGL context" };
+  }
+
   function create() {
-    const canvas = document.createElement("canvas");
-    const gl = canvas.getContext("webgl", {
-      alpha: true,
-      premultipliedAlpha: true,
-      antialias: false,
-      depth: false,
-      stencil: false,
-      preserveDrawingBuffer: true,
-      failIfMajorPerformanceCaveat: false,
-    });
-    if (!gl) return null;
+    const got = obtainContext();
+    const canvas = got.canvas;
+    const gl = got.gl;
+    if (!gl) {
+      root.ArtGL.lastError = got.note;
+      return null;
+    }
     const vs = compile(gl, gl.VERTEX_SHADER, VERT);
     const fs = compile(gl, gl.FRAGMENT_SHADER, FRAG);
-    if (!vs || !fs) return null;
+    if (!vs || !fs) {
+      root.ArtGL.lastError = "shader compile failed";
+      return null;
+    }
     const prog = gl.createProgram();
     gl.attachShader(prog, vs);
     gl.attachShader(prog, fs);
     gl.bindAttribLocation(prog, 0, "aPos");
     gl.bindAttribLocation(prog, 1, "aUv");
     gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+      root.ArtGL.lastError = "shader link failed";
+      return null;
+    }
     gl.useProgram(prog);
     const buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
@@ -141,13 +170,23 @@
       gl.drawArrays(gl.TRIANGLES, 0, count);
     }
 
+    let renderer = got.note;
+    try {
+      const ext = gl.getExtension("WEBGL_debug_renderer_info");
+      const name = ext
+        ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)
+        : gl.getParameter(gl.RENDERER);
+      if (name) renderer = String(name);
+    } catch (err) { /* the context name is enough */ }
+    root.ArtGL.lastError = "";
     return {
       canvas,
       begin,
       mesh,
+      renderer,
       get lost() { return lost || gl.isContextLost(); },
     };
   }
 
-  root.ArtGL = { create };
+  root.ArtGL = { create, lastError: "" };
 })(typeof globalThis !== "undefined" ? globalThis : this);

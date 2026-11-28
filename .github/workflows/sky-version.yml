@@ -1,0 +1,16 @@
+# Pages caches sky files for ten minutes. The query on each script and
+# plate has to match the version stamped in sky/index.html, or a phone
+# keeps running the previous app.js.
+name: Sky asset version
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: node sky/assetversion.test.mjs
