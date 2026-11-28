@@ -27,6 +27,12 @@
   };
 
   const $ = (id) => document.getElementById(id);
+  function asset(path) {
+    const version = window.NG_VERSION;
+    if (!version) return path;
+    const join = path.indexOf("?") === -1 ? "?" : "&";
+    return path + join + "v=" + encodeURIComponent(version);
+  }
   const canvas = $("sky");
   const ctx = canvas.getContext("2d", { alpha: false });
   const params = new URLSearchParams(location.search);
@@ -463,7 +469,7 @@
         g.fillRect(0, 0, board.width, board.height);
         rec.red = board;
       };
-      rec.img.src = `data/art/${meta.file}`;
+      rec.img.src = asset(`data/art/${meta.file}`);
       artImages.set(id, rec);
     }
     return rec.ready ? rec : null;
@@ -478,6 +484,8 @@
   }
   let artGL = null;
   let artGLFailed = false;
+  let artWhy = "not started";
+  let artBoard = null;
   const artVerts = new Float32Array(8 * 8 * 2 * 3 * 4);
   let artStamp = 0;
   let artHold = null;
@@ -488,11 +496,73 @@
   let fpsRead = 0;
   let frameStamp = 0;
   function artLayer() {
+    if (artGL && artGL.lost) {
+      artGLFailed = true;
+      artGL = null;
+      artWhy = "WebGL context lost";
+    }
     if (artGLFailed) return null;
-    if (artGL && !artGL.lost) return artGL;
-    artGL = window.ArtGL ? ArtGL.create() : null;
-    if (!artGL) artGLFailed = true;
+    if (artGL) return artGL;
+    try {
+      artGL = window.ArtGL ? ArtGL.create() : null;
+    } catch (err) {
+      artGL = null;
+      artWhy = err && err.message ? err.message : "WebGL init threw";
+    }
+    if (!artGL) {
+      artGLFailed = true;
+      artWhy = (window.ArtGL && ArtGL.lastError) || artWhy || "no WebGL context";
+      return null;
+    }
+    artWhy = artGL.renderer || "webgl";
     return artGL;
+  }
+  function paintArtCanvas(img, fit, screen, alpha) {
+    if (!artBoard) artBoard = document.createElement("canvas");
+    if (artBoard.width !== w || artBoard.height !== h) {
+      artBoard.width = Math.max(1, w);
+      artBoard.height = Math.max(1, h);
+    }
+    const g = artBoard.getContext("2d");
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, artBoard.width, artBoard.height);
+    const cols = fit.cols;
+    const step = 2;
+    for (let j = 0; j < fit.n; j += step) {
+      for (let i = 0; i < fit.n; i += step) {
+        const i00 = j * cols + i;
+        const i10 = i00 + step;
+        const i01 = i00 + cols * step;
+        const i11 = i01 + step;
+        paintArtTri(g, img, fit, screen, i00, i10, i01);
+        paintArtTri(g, img, fit, screen, i10, i11, i01);
+      }
+    }
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(artBoard, 0, 0, w, h);
+    ctx.restore();
+  }
+  function paintArtTri(g, img, fit, screen, i0, i1, i2) {
+    const p0 = screen[i0], p1 = screen[i1], p2 = screen[i2];
+    if (!p0 || !p1 || !p2) return;
+    const limit = 2.2 * Math.hypot(w, h);
+    if (Math.hypot(p0.x - w / 2, p0.y - h / 2) > limit) return;
+    if (Math.hypot(p1.x - w / 2, p1.y - h / 2) > limit) return;
+    if (Math.hypot(p2.x - w / 2, p2.y - h / 2) > limit) return;
+    const src = [fit.verts[i0], fit.verts[i1], fit.verts[i2]].map((v) => ({ x: v.u, y: v.v }));
+    const aff = ArtMesh.solveAffine(src, [p0, p1, p2]);
+    if (!aff) return;
+    g.save();
+    g.beginPath();
+    g.moveTo(p0.x, p0.y);
+    g.lineTo(p1.x, p1.y);
+    g.lineTo(p2.x, p2.y);
+    g.closePath();
+    g.clip();
+    g.setTransform(aff.a, aff.b, aff.c, aff.d, aff.e, aff.f);
+    g.drawImage(img, 0, 0);
+    g.restore();
   }
   function artOnScreen(screen) {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -591,7 +661,12 @@
           count = pushArtTri(fit, screen, artDpr, count, i10, i11, i01);
         }
       }
-      if (!count || !gl) continue;
+      if (!count) continue;
+      if (!gl) {
+        paintArtCanvas(img, fit, screen, alpha);
+        drew = true;
+        continue;
+      }
       gl.mesh(img, alpha, artVerts, count);
       drew = true;
     }
@@ -606,9 +681,12 @@
       if (from.every(Boolean)) artHold = { dirs, from, night };
       artStamp = nowMs;
       artPath = "webgl";
+      artWhy = gl.renderer || artWhy;
       ctx.drawImage(gl.canvas, 0, 0, w, h);
+    } else if (!gl && drew) {
+      artPath = "canvas";
     } else {
-      artPath = gl ? "webgl" : "off";
+      artPath = gl ? "webgl" : "canvas";
     }
     if (!showAnchors) return;
     ctx.save();
@@ -680,7 +758,14 @@
     }
     if (showArt) {
       const artStart = performance.now();
-      drawConstellationArt(when, pose);
+      try {
+        drawConstellationArt(when, pose);
+      } catch (err) {
+        artGLFailed = true;
+        artGL = null;
+        artPath = "error";
+        artWhy = err && err.message ? err.message : "art draw failed";
+      }
       artMs = performance.now() - artStart;
     } else {
       artMs = 0;
@@ -809,8 +894,10 @@
       const d = orientDebug;
       $("orient-debug").hidden = false;
       const lines = [
+        `v ${window.NG_VERSION || "—"}`,
         `fps ${fpsRead.toFixed(0)}   frame ${frameMs.toFixed(1)} ms`,
         `art ${artMs.toFixed(1)} ms   ${artPath}${artReuse ? " held" : ""}`,
+        String(artWhy).slice(0, 72),
       ];
       if (d) lines.push(
         `mode ${d.mode}`,
@@ -1393,11 +1480,11 @@
     resize();
     bind();
     const [starFile, figFile, conFile, artFile, figureFile] = await Promise.all([
-      fetch("data/stars.json").then((r) => r.json()),
-      fetch("data/figures.json").then((r) => r.json()),
-      fetch("data/constellations.json").then((r) => r.json()),
-      fetch("data/art/index.json").then((r) => r.json()),
-      fetch("data/figure-lines.json").then((r) => r.json()),
+      fetch(asset("data/stars.json")).then((r) => r.json()),
+      fetch(asset("data/figures.json")).then((r) => r.json()),
+      fetch(asset("data/constellations.json")).then((r) => r.json()),
+      fetch(asset("data/art/index.json")).then((r) => r.json()),
+      fetch(asset("data/figure-lines.json")).then((r) => r.json()),
     ]);
     constMeta = conFile;
     artIndex = artFile;
