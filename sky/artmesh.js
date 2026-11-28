@@ -5,6 +5,9 @@
 
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
+  // Proper similarity: scale, rotation, translation. The linear part is
+  // [[a, -b], [b, a]], so its determinant a*a + b*b is never negative.
+  // A reflection or a shear is not a solution this can return.
   function solveSimilarity(src, dst) {
     if (src.length < 3) return null;
     let mx = 0, my = 0, mu = 0, mv = 0;

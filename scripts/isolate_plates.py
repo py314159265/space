@@ -30,10 +30,13 @@ SOURCE = {
 # card (the fox under the swan, Antinous, the lyre, Leo Minor, the triangle)
 # stay outside it.
 KEEP = {
+    # The beak reaches Albireo. The previous outline stopped two pixels
+    # short of that star, so the head never shipped. Stay above the goose.
     "Cyg": [
         (470, 1040), (560, 780), (720, 400), (940, 280), (1180, 250),
-        (1400, 400), (1470, 560), (1340, 760), (1180, 900),
-        (1380, 1035), (1220, 960), (1000, 840), (780, 980), (500, 1060),
+        (1400, 400), (1470, 560), (1340, 760),
+        (1450, 820), (1435, 960), (1405, 1088), (1310, 1100), (1200, 1035),
+        (1220, 960), (1000, 840), (780, 980), (500, 1060),
     ],
     "Aql": [
         (640, 780), (900, 660), (1250, 620), (1580, 700), (1780, 980),
@@ -183,7 +186,10 @@ def main():
                 area = int(stats[i, cv2.CC_STAT_AREA])
                 # The arrowhead sits above the eagle and is not part of the wing.
                 stub = cid == "Aql" and top + bh < 100
-                if area < 160 or stub:
+                # Detached specks left after the name filter: the printed
+                # star name beside Deneb, and a short rule by the lyre.
+                speck = cid == "Cyg" and area < 500
+                if area < 160 or stub or speck:
                     alpha[lab == i] = 0
         else:
             shipped = to_shipped(keep, scale, origin, (web.shape[1], web.shape[0]))
@@ -191,6 +197,11 @@ def main():
         alpha[alpha < 8] = 0
         out = web.copy()
         out[:, :, 3] = alpha.astype(np.uint8)
+        if cid in LINE_ART:
+            ink = out[:, :, 3] > 0
+            out[:, :, 0][ink] = 255
+            out[:, :, 1][ink] = 255
+            out[:, :, 2][ink] = 255
         Image.fromarray(out, "RGBA").save(web_path, "WEBP", quality=68, method=4)
         cand = preview / f"cand_{cid}.webp"
         Image.fromarray(out, "RGBA").save(cand, "WEBP", quality=68, method=4)
