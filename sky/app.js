@@ -476,46 +476,97 @@
       if (fit) artFits.set(id, fit);
     }
   }
-  function artTriangle(g, img, fit, screen, i0, i1, i2) {
+  let artGL = null;
+  let artGLFailed = false;
+  const artVerts = new Float32Array(8 * 8 * 2 * 3 * 4);
+  let artStamp = 0;
+  let artHold = null;
+  let artMs = 0;
+  let artPath = "idle";
+  let artReuse = false;
+  let frameMs = 0;
+  let fpsRead = 0;
+  let frameStamp = 0;
+  function artLayer() {
+    if (artGLFailed) return null;
+    if (artGL && !artGL.lost) return artGL;
+    artGL = window.ArtGL ? ArtGL.create() : null;
+    if (!artGL) artGLFailed = true;
+    return artGL;
+  }
+  function artOnScreen(screen) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let n = 0, zSum = 0;
+    for (const p of screen) {
+      if (!p) continue;
+      n++;
+      zSum += p.z;
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }
+    if (n < 3) return null;
+    if (maxX < -40 || minX > w + 40 || maxY < -40 || minY > h + 40) return null;
+    const span = Math.max(maxX - minX, maxY - minY);
+    return { span, meanZ: zSum / n };
+  }
+  function pushArtTri(fit, screen, artDpr, n, i0, i1, i2) {
     const p0 = screen[i0], p1 = screen[i1], p2 = screen[i2];
-    if (!p0 || !p1 || !p2) return;
+    if (!p0 || !p1 || !p2) return n;
     const limit = 2.2 * Math.hypot(w, h);
-    const far = (p) => Math.hypot(p.x - w / 2, p.y - h / 2) > limit;
-    if (far(p0) || far(p1) || far(p2)) return;
+    if (Math.hypot(p0.x - w / 2, p0.y - h / 2) > limit) return n;
+    if (Math.hypot(p1.x - w / 2, p1.y - h / 2) > limit) return n;
+    if (Math.hypot(p2.x - w / 2, p2.y - h / 2) > limit) return n;
     const minX = Math.min(p0.x, p1.x, p2.x), maxX = Math.max(p0.x, p1.x, p2.x);
     const minY = Math.min(p0.y, p1.y, p2.y), maxY = Math.max(p0.y, p1.y, p2.y);
-    if (maxX < -30 || minX > w + 30 || maxY < -30 || minY > h + 30) return;
-    const src = [fit.verts[i0], fit.verts[i1], fit.verts[i2]].map((v) => ({ x: v.u, y: v.v }));
-    const aff = ArtMesh.solveAffine(src, [p0, p1, p2]);
-    if (!aff) return;
-    const cx = (p0.x + p1.x + p2.x) / 3;
-    const cy = (p0.y + p1.y + p2.y) / 3;
-    const grow = (p) => {
-      const dx = p.x - cx, dy = p.y - cy;
-      const len = Math.hypot(dx, dy) || 1;
-      return { x: p.x + dx / len, y: p.y + dy / len };
+    if (maxX < -30 || minX > w + 30 || maxY < -30 || minY > h + 30) return n;
+    const v0 = fit.verts[i0], v1 = fit.verts[i1], v2 = fit.verts[i2];
+    const put = (p, u, v) => {
+      const o = n * 4;
+      artVerts[o] = p.x * artDpr;
+      artVerts[o + 1] = p.y * artDpr;
+      artVerts[o + 2] = u / fit.w;
+      artVerts[o + 3] = v / fit.h;
+      return n + 1;
     };
-    const g0 = grow(p0), g1 = grow(p1), g2 = grow(p2);
-    g.save();
-    g.beginPath();
-    g.moveTo(g0.x, g0.y);
-    g.lineTo(g1.x, g1.y);
-    g.lineTo(g2.x, g2.y);
-    g.closePath();
-    g.clip();
-    g.setTransform(aff.a * dpr, aff.b * dpr, aff.c * dpr, aff.d * dpr, aff.e * dpr, aff.f * dpr);
-    g.globalAlpha = 1;
-    g.drawImage(img, 0, 0);
-    g.restore();
+    n = put(p0, v0.u, v0.v);
+    n = put(p1, v1.u, v1.v);
+    n = put(p2, v2.u, v2.v);
+    return n;
   }
-  let artBoard = null;
+  function blitHeldArt(pose) {
+    if (!artHold || !artGL) return false;
+    const to = artHold.dirs.map((p) => project(p.az, p.alt, pose));
+    if (to.some((p) => !p)) return false;
+    const aff = ArtMesh.solveAffine(artHold.from, to);
+    if (!aff) return false;
+    const det = aff.a * aff.d - aff.b * aff.c;
+    if (det < 0.35 || det > 3) return false;
+    ctx.save();
+    ctx.setTransform(aff.a * dpr, aff.b * dpr, aff.c * dpr, aff.d * dpr, aff.e * dpr, aff.f * dpr);
+    ctx.drawImage(artGL.canvas, 0, 0, w, h);
+    ctx.restore();
+    return true;
+  }
   function drawConstellationArt(when, pose) {
+    const gl = artLayer();
+    const nowMs = performance.now();
+    if (gl && !showAnchors && artHold && artHold.night === night && nowMs - artStamp < 33 && blitHeldArt(pose)) {
+      artPath = "webgl";
+      artReuse = true;
+      return;
+    }
+    artReuse = false;
+    const artDpr = Math.min(dpr, 1.5);
+    if (gl) gl.begin(w, h, artDpr, night);
+    let drew = false;
     for (const id of Object.keys(artIndex)) {
       const fit = artFits.get(id);
       if (!fit) continue;
       const rec = loadArt(id);
       if (!rec) continue;
-      const img = night && rec.red ? rec.red : rec.img;
+      const img = rec.img;
       let altSum = 0;
       for (const a of fit.anchors) altSum += eqToHor(a.ra, a.dec, when).alt;
       const meanAlt = (altSum / fit.anchors.length) * RAD;
@@ -525,38 +576,51 @@
         const hor = eqToHor(v.ra, v.dec, when);
         return project(hor.az, hor.alt, pose);
       });
-      if (!artBoard || artBoard.width !== canvas.width || artBoard.height !== canvas.height) {
-        artBoard = document.createElement("canvas");
-        artBoard.width = canvas.width;
-        artBoard.height = canvas.height;
-      }
-      const g = artBoard.getContext("2d");
-      g.setTransform(dpr, 0, 0, dpr, 0, 0);
-      g.clearRect(0, 0, w, h);
-      g.globalAlpha = 1;
+      const box = artOnScreen(screen);
+      if (!box) continue;
+      const step = box.span < 220 || box.meanZ < 0.5 ? 2 : 1;
       const cols = fit.cols;
-      for (let j = 0; j < fit.n; j++) {
-        for (let i = 0; i < fit.n; i++) {
+      let count = 0;
+      for (let j = 0; j < fit.n; j += step) {
+        for (let i = 0; i < fit.n; i += step) {
           const i00 = j * cols + i;
-          const i10 = i00 + 1;
-          const i01 = i00 + cols;
-          const i11 = i01 + 1;
-          artTriangle(g, img, fit, screen, i00, i10, i01);
-          artTriangle(g, img, fit, screen, i10, i11, i01);
+          const i10 = i00 + step;
+          const i01 = i00 + cols * step;
+          const i11 = i01 + step;
+          count = pushArtTri(fit, screen, artDpr, count, i00, i10, i01);
+          count = pushArtTri(fit, screen, artDpr, count, i10, i11, i01);
         }
       }
-      ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.drawImage(artBoard, 0, 0, w, h);
-      ctx.restore();
-      if (!showAnchors) continue;
-      ctx.save();
-      ctx.globalAlpha = 1;
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = "#3dffb0";
-      ctx.fillStyle = "#3dffb0";
-      ctx.font = "600 11px Source Sans 3, sans-serif";
-      ctx.textAlign = "left";
+      if (!count || !gl) continue;
+      gl.mesh(img, alpha, artVerts, count);
+      drew = true;
+    }
+    if (gl && drew) {
+      const shift = 8 * DEG;
+      const dirs = [
+        { az: pose.az, alt: pose.alt },
+        { az: normAng(pose.az + shift), alt: pose.alt },
+        { az: pose.az, alt: Math.min(pose.alt + shift, 80 * DEG) },
+      ];
+      const from = dirs.map((p) => project(p.az, p.alt, pose));
+      if (from.every(Boolean)) artHold = { dirs, from, night };
+      artStamp = nowMs;
+      artPath = "webgl";
+      ctx.drawImage(gl.canvas, 0, 0, w, h);
+    } else {
+      artPath = gl ? "webgl" : "off";
+    }
+    if (!showAnchors) return;
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "#3dffb0";
+    ctx.fillStyle = "#3dffb0";
+    ctx.font = "600 11px Source Sans 3, sans-serif";
+    ctx.textAlign = "left";
+    for (const id of Object.keys(artIndex)) {
+      const fit = artFits.get(id);
+      if (!fit) continue;
       for (const a of fit.anchors) {
         const sky = ArtMesh.anchorSky(fit, a);
         const meshHor = eqToHor(sky.ra, sky.dec, when);
@@ -576,11 +640,17 @@
         ctx.stroke();
         ctx.fillText(String(Math.round(Math.hypot(mesh.x - star.x, mesh.y - star.y))), mesh.x + 7, mesh.y - 7);
       }
-      ctx.restore();
     }
+    ctx.restore();
   }
 
   function frame() {
+    const frameStart = performance.now();
+    if (frameStamp) {
+      const gap = frameStart - frameStamp;
+      fpsRead = fpsRead ? fpsRead * 0.8 + (1000 / Math.max(gap, 1)) * 0.2 : 1000 / Math.max(gap, 1);
+    }
+    frameStamp = frameStart;
     stepSlew();
     const pose = cameraPose();
     const when = nowDate();
@@ -608,7 +678,15 @@
       hipAlt.set(s.hip, hor.alt);
       hipHor.set(s.hip, hor);
     }
-    if (showArt) drawConstellationArt(when, pose);
+    if (showArt) {
+      const artStart = performance.now();
+      drawConstellationArt(when, pose);
+      artMs = performance.now() - artStart;
+    } else {
+      artMs = 0;
+      artPath = "off";
+      artReuse = false;
+    }
 
     for (const s of stars) {
       const p = hipPos.get(s.hip);
@@ -718,16 +796,30 @@
 
     const azDeg = pose.az * RAD;
     $("hud").textContent = `● ${compassName(pose.az)} ${Math.round(azDeg)}° · Alt ${Math.round(pose.alt * RAD)}°`;
+    frameMs = performance.now() - frameStart;
+    const frameLog = window.__skyFrameLog || (window.__skyFrameLog = []);
+    const artLog = window.__skyArtLog || (window.__skyArtLog = []);
+    frameLog.push(frameMs);
+    artLog.push(artMs);
+    if (frameLog.length > 120) {
+      frameLog.shift();
+      artLog.shift();
+    }
     if (debugOn) {
       const d = orientDebug;
       $("orient-debug").hidden = false;
-      $("orient-debug").textContent = d ? [
+      const lines = [
+        `fps ${fpsRead.toFixed(0)}   frame ${frameMs.toFixed(1)} ms`,
+        `art ${artMs.toFixed(1)} ms   ${artPath}${artReuse ? " held" : ""}`,
+      ];
+      if (d) lines.push(
         `mode ${d.mode}`,
         `alpha ${Number(d.alpha).toFixed(1)}  beta ${Number(d.beta).toFixed(1)}  gamma ${Number(d.gamma).toFixed(1)}`,
         `webkit ${d.webkit == null ? "—" : Number(d.webkit).toFixed(1)}`,
         `offset ${d.offset.toFixed(1)}`,
         `az ${Math.round(azDeg)}°  alt ${Math.round(pose.alt * RAD)}°`,
-      ].join("\n") : "waiting for orientation";
+      );
+      $("orient-debug").textContent = lines.join("\n");
     }
     $("when").textContent = when.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
@@ -737,6 +829,10 @@
       lat, lon, live, night,
       view: { az: azDeg, alt: pose.alt * RAD, fov },
       lineMode,
+      fps: fpsRead,
+      frameMs,
+      artMs,
+      artPath,
       moonPhase,
       phase: phaseName(moonPhase),
       bodies: Object.fromEntries(bodies.filter((b) => b.hor).map((b) => [b.name, {
